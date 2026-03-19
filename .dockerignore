@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+.git
+.github
+.env
+.env.*
+*.pem
+!config/public.pem
+secrets/
+inchbrick-dubai-prod-099368437322.json
+logs
+public/uploads
+deploy
+terraform
+*.tfstate
+*.tfstate.*

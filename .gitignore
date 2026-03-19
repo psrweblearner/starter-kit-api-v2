@@ -1,0 +1,22 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+.env
+.env.*
+!.env.example
+
+# never commit private keys (except explicitly allowlisted below)
+*.pem
+!config/public.pem
+secrets/
+inchbrick-dubai-prod-099368437322.json
+
+# uploads: keep folder, ignore contents
+public/uploads/
+
+# terraform
+**/.terraform/*
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfvars

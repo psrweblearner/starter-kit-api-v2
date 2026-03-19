@@ -1,0 +1,224 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/starter-kit-api
+  PACKAGE_NAME: starter-kit-api
+  APP_DIR: /opt/starter-kit-api
+  UPLOAD_DIR: /tmp/starter-kit-api-upload
+  CONTAINER_NAME: starter-kit-api
+  APP_PORT: "5000"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set lowercase owner
+        id: owner
+        shell: bash
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set image ref
+        id: image
+        shell: bash
+        run: echo "ref=ghcr.io/${{ steps.owner.outputs.value }}/starter-kit-api" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.ref }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create production env file
+        shell: bash
+        env:
+          NODE_ENV: ${{ secrets.NODE_ENV }}
+          PORT: ${{ secrets.PORT }}
+          DEBUG: ${{ secrets.DEBUG }}
+          JWT_PRIVATE_KEY_PATH: ${{ secrets.JWT_PRIVATE_KEY_PATH }}
+          JWT_PUBLIC_KEY_PATH: ${{ secrets.JWT_PUBLIC_KEY_PATH }}
+          UPLOAD_PATH: ${{ secrets.UPLOAD_PATH }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_HOST_REPLICA: ${{ secrets.DB_HOST_REPLICA }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          STORAGE_TYPE: ${{ secrets.STORAGE_TYPE }}
+          GOOGLE_MAP_KEY: ${{ secrets.GOOGLE_MAP_KEY }}
+          GOOGLE_CLOUD_PROJECT_ID: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
+          GOOGLE_CLOUD_KEY_FILE: ${{ secrets.GOOGLE_CLOUD_KEY_FILE }}
+          GOOGLE_CLOUD_STORAGE_BUCKET: ${{ secrets.GOOGLE_CLOUD_STORAGE_BUCKET }}
+          GOOGLE_CLOUD_STORAGE_API_URI: ${{ secrets.GOOGLE_CLOUD_STORAGE_API_URI }}
+          AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_BUCKET: ${{ secrets.AWS_BUCKET }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+          INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
+        run: |
+          set -euo pipefail
+          : "${DB_HOST:?missing secret DB_HOST}"
+          : "${DB_USER:?missing secret DB_USER}"
+          : "${DB_PASSWORD:?missing secret DB_PASSWORD}"
+          : "${DB_NAME:?missing secret DB_NAME}"
+
+          {
+            [[ -n "${NODE_ENV:-}" ]] && printf 'NODE_ENV=%s\n' "$NODE_ENV"
+            [[ -n "${PORT:-}" ]] && printf 'PORT=%s\n' "$PORT"
+            [[ -n "${DEBUG:-}" ]] && printf 'DEBUG=%s\n' "$DEBUG"
+            [[ -n "${JWT_PRIVATE_KEY_PATH:-}" ]] && printf 'JWT_PRIVATE_KEY_PATH=%s\n' "$JWT_PRIVATE_KEY_PATH"
+            [[ -n "${JWT_PUBLIC_KEY_PATH:-}" ]] && printf 'JWT_PUBLIC_KEY_PATH=%s\n' "$JWT_PUBLIC_KEY_PATH"
+            [[ -n "${UPLOAD_PATH:-}" ]] && printf 'UPLOAD_PATH=%s\n' "$UPLOAD_PATH"
+
+            printf 'DB_HOST=%s\n' "$DB_HOST"
+            [[ -n "${DB_HOST_REPLICA:-}" ]] && printf 'DB_HOST_REPLICA=%s\n' "$DB_HOST_REPLICA"
+            printf 'DB_USER=%s\n' "$DB_USER"
+            printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
+            printf 'DB_NAME=%s\n' "$DB_NAME"
+
+            [[ -n "${STORAGE_TYPE:-}" ]] && printf 'STORAGE_TYPE=%s\n' "$STORAGE_TYPE"
+            [[ -n "${GOOGLE_MAP_KEY:-}" ]] && printf 'GOOGLE_MAP_KEY=%s\n' "$GOOGLE_MAP_KEY"
+            [[ -n "${GOOGLE_CLOUD_PROJECT_ID:-}" ]] && printf 'GOOGLE_CLOUD_PROJECT_ID=%s\n' "$GOOGLE_CLOUD_PROJECT_ID"
+            [[ -n "${GOOGLE_CLOUD_KEY_FILE:-}" ]] && printf 'GOOGLE_CLOUD_KEY_FILE=%s\n' "$GOOGLE_CLOUD_KEY_FILE"
+            [[ -n "${GOOGLE_CLOUD_STORAGE_BUCKET:-}" ]] && printf 'GOOGLE_CLOUD_STORAGE_BUCKET=%s\n' "$GOOGLE_CLOUD_STORAGE_BUCKET"
+            [[ -n "${GOOGLE_CLOUD_STORAGE_API_URI:-}" ]] && printf 'GOOGLE_CLOUD_STORAGE_API_URI=%s\n' "$GOOGLE_CLOUD_STORAGE_API_URI"
+
+            [[ -n "${AWS_ACCESS_KEY:-}" ]] && printf 'AWS_ACCESS_KEY=%s\n' "$AWS_ACCESS_KEY"
+            [[ -n "${AWS_SECRET_KEY:-}" ]] && printf 'AWS_SECRET_KEY=%s\n' "$AWS_SECRET_KEY"
+            [[ -n "${AWS_REGION:-}" ]] && printf 'AWS_REGION=%s\n' "$AWS_REGION"
+            [[ -n "${AWS_BUCKET:-}" ]] && printf 'AWS_BUCKET=%s\n' "$AWS_BUCKET"
+
+            [[ -n "${REDIS_URL:-}" ]] && printf 'REDIS_URL=%s\n' "$REDIS_URL"
+            [[ -n "${UPSTASH_REDIS_URL:-}" ]] && printf 'UPSTASH_REDIS_URL=%s\n' "$UPSTASH_REDIS_URL"
+            [[ -n "${INTERNAL_SECRET:-}" ]] && printf 'INTERNAL_SECRET=%s\n' "$INTERNAL_SECRET"
+          } > .env.production
+
+          key_count="$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' .env.production || true)"
+          echo ".env.production generated (${key_count} keys)."
+
+      - name: Copy deploy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          source: "deploy/ec2/*,.env.production"
+          target: "${{ env.UPLOAD_DIR }}"
+          strip_components: 0
+          rm: true
+          overwrite: true
+          debug: true
+
+      - name: Install deploy files into APP_DIR on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -Eeuo pipefail
+
+            UPLOAD_DIR="${{ env.UPLOAD_DIR }}"
+            APP_DIR="${{ env.APP_DIR }}"
+
+            SUDO=""
+            if command -v sudo >/dev/null 2>&1; then
+              SUDO="sudo"
+            fi
+
+            ${SUDO} mkdir -p "${APP_DIR}"
+
+            if [[ -f "${UPLOAD_DIR}/.env.production" ]]; then
+              ${SUDO} cp -f "${UPLOAD_DIR}/.env.production" "${APP_DIR}/.env.production"
+            fi
+
+            if [[ -d "${UPLOAD_DIR}/deploy/ec2" ]]; then
+              ${SUDO} cp -a "${UPLOAD_DIR}/deploy/ec2/." "${APP_DIR}/"
+            fi
+
+            ${SUDO} rm -rf "${UPLOAD_DIR}"
+            ${SUDO} chown -R "$(id -un):$(id -gn)" "${APP_DIR}"
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          IMAGE_TAG: sha-${{ github.sha }}
+          APP_DIR: ${{ env.APP_DIR }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          APP_PORT: ${{ env.APP_PORT }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          envs: IMAGE_REF,IMAGE_TAG,APP_DIR,CONTAINER_NAME,APP_PORT,GHCR_USERNAME,GHCR_TOKEN
+          script_stop: true
+          script: |
+            chmod +x "${APP_DIR}/deploy.sh"
+            "${APP_DIR}/deploy.sh"
+
+      - name: Keep only 2 GHCR versions
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
+          PACKAGE_NAME: ${{ env.PACKAGE_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$OWNER_TYPE" == "Organization" ]]; then
+            api_path="/orgs/${OWNER}/packages/container/${PACKAGE_NAME}/versions"
+          else
+            api_path="/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions"
+          fi
+
+          gh api "${api_path}" --paginate --jq 'sort_by(.created_at) | reverse | .[2:] | .[].id' | while read -r version_id; do
+            [[ -z "$version_id" ]] && continue
+            gh api -X DELETE "${api_path}/${version_id}"
+          done
