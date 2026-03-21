@@ -157,4 +157,13 @@ router.get('/floor-plan/:id', CTR.FloorPlan.findOne);
 router.put('/floor-plan/:id', CTR.FloorPlan.update);
 router.patch('/floor-plan/:id/status', CTR.FloorPlan.updateStatus);
 router.delete('/floor-plan/:id', CTR.FloorPlan.remove);
+
+// http://localhost:5000/api/v1/email-template (Methods [GET,POST,PUT,DELETE]);
+router.route('/email-template').post(CTR.EmailTemplate.create).get(CTR.EmailTemplate.findAll);
+router.route('/email-template/:id').get(CTR.EmailTemplate.findOne).put(CTR.EmailTemplate.update).delete(CTR.EmailTemplate.remove);
+router.patch('/email-template/:id/status',CTR.EmailTemplate.updateStatus);
+
+// http://localhost:5000/admin-api/models (Methods [GET]);
+router.get('/models',CTR.Models.findAllModels);
+router.get('/models/:name/fields',CTR.Models.findModelFields);
 module.exports = router;

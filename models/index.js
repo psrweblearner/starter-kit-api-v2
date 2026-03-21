@@ -6,7 +6,7 @@
  * ==========================================================
  *
  * This file is responsible for initializing the Sequelize ORM, loading all models dynamically,
- * setting up associations, and initializing global utilities such as logging and mail hooks.
+ * setting up associations, and initializing global mail hooks.
  * It centralizes database setup, making it easy to manage models and global features.
  */
 
@@ -16,19 +16,19 @@
  * ==========================================================
  *
  * The following modules are imported to handle file system operations, path resolution, Sequelize ORM,
- * environment configuration, and global utilities for logging and mail notifications.
+ * environment configuration, and the global mail utility.
  *
  * - fs: File system module to read model files dynamically.
  * - path: Handles file paths and file name resolution.
  * - Sequelize: The ORM for database interactions.
  * - process: Accesses environment variables and process-level information.
- * - globalLog: Custom logging utility to track system-level logs.
  * - globalMail: Custom utility to handle automated mail hooks.
  */
 const fs = require('fs');
 const path = require('path');
 const Sequelize = require('sequelize');
 const process = require('process');
+const globalMail = require('../utils/globalMail');
 
 /**
  * ==========================================================
@@ -117,6 +117,10 @@ Object.keys(db).forEach(modelName => {
  */
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
+
+if (globalMail && typeof globalMail.initMailHooks === 'function') {
+  globalMail.initMailHooks(db);
+}
 
 /**
  * ==========================================================
