@@ -48,3 +48,35 @@ exports.authInfo = catchAsync(async (req, res) => {
         data
     });
 });
+
+exports.forget = catchAsync(async (req, res) => {
+    const result = await services.adminAuth.forget(req);
+
+    if (!result?.sent) {
+        return res.status(404).json({
+            success: false,
+            message: result?.message || 'OTP not sent. Username is invalid or you are no longer assigned to admin.'
+        });
+    }
+
+    res.status(200).json({
+        success: true,
+        message: result.message || 'OTP has been sent to your registered email or mobile number.'
+    });
+});
+
+exports.verifyOtp = catchAsync(async (req, res) => {
+    await services.adminAuth.verifyOtp(req);
+    res.status(200).json({
+        success: true,
+        message: 'OTP verified successfully'
+    });
+});
+
+exports.resetPassword = catchAsync(async (req, res) => {
+    await services.adminAuth.resetPassword(req);
+    res.status(200).json({
+        success: true,
+        message: 'Password reset successfully'
+    });
+});
