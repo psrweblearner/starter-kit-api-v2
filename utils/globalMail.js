@@ -6,10 +6,20 @@ try {
 } catch (err) {
   nodemailer = null;
 }
+const path = require('path');
+const { Op } = require('sequelize');
 
 const logger = require('./logger');
 
 let cachedTransporter = null;
+
+function runInBackground(task, label = 'mail-task') {
+  setImmediate(() => {
+    Promise.resolve()
+      .then(task)
+      .catch(err => logger.error(`${label} failed: ${err.message}`));
+  });
+}
 
 function isEmailLike(value) {
   return typeof value === 'string' && /.+@.+\..+/.test(value.trim());
@@ -60,6 +70,90 @@ function replacePlaceholders(templateString, data = {}) {
   return String(templateString)
     .replace(/##\s*(.*?)\s*##/g, resolveToken)
     .replace(/{{\s*(.*?)\s*}}/g, resolveToken);
+}
+
+function asArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function getChangedFields(record = {}, previousRecord = {}) {
+  const keys = new Set([...Object.keys(record), ...Object.keys(previousRecord)]);
+  const changed = [];
+
+  for (const key of keys) {
+    const before = previousRecord[key];
+    const after = record[key];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      changed.push(key);
+    }
+  }
+
+  return changed;
+}
+
+function checkConditionRule(rule = {}, record = {}, previousRecord = {}) {
+  const field = rule.field;
+  const operator = String(rule.operator || 'eq').toLowerCase();
+  const currentValue = record[field];
+  const previousValue = previousRecord[field];
+  const expected = rule.value;
+
+  switch (operator) {
+    case 'eq':
+      return String(currentValue) === String(expected);
+    case 'neq':
+      return String(currentValue) !== String(expected);
+    case 'includes':
+      return Array.isArray(currentValue)
+        ? currentValue.map(String).includes(String(expected))
+        : String(currentValue || '').includes(String(expected));
+    case 'changed':
+      return JSON.stringify(currentValue) !== JSON.stringify(previousValue);
+    case 'changed_to':
+      return JSON.stringify(currentValue) !== JSON.stringify(previousValue) && String(currentValue) === String(expected);
+    default:
+      return true;
+  }
+}
+
+function shouldTriggerTemplate(template, operation, record = {}, previousRecord = {}) {
+  if (!template) return false;
+  const triggerOn = String(template.triggerOn || 'always').toLowerCase();
+
+  if (triggerOn === 'always') {
+    return true;
+  }
+
+  if (triggerOn === 'status_change') {
+    if (operation !== 'update') return false;
+    return JSON.stringify(record.status) !== JSON.stringify(previousRecord.status);
+  }
+
+  if (triggerOn === 'field_change') {
+    const watchedFields = asArray(template.watchedFields);
+    if (!watchedFields.length) return false;
+    if (operation !== 'update') {
+      // For create/delete flows, match if watched field has a non-empty value in current record.
+      return watchedFields.some(field => record[field] !== undefined && record[field] !== null && record[field] !== '');
+    }
+    return watchedFields.some(field => JSON.stringify(record[field]) !== JSON.stringify(previousRecord[field]));
+  }
+
+  if (triggerOn === 'custom_condition') {
+    const rules = Array.isArray(template.conditionRules) ? template.conditionRules : [];
+    if (!rules.length) return false;
+    return rules.every(rule => checkConditionRule(rule, record, previousRecord));
+  }
+
+  return true;
 }
 
 function parseMailField(mailField) {
@@ -234,6 +328,20 @@ async function resolveAttachments(db, record, fieldName) {
       continue;
     }
 
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      const looksLikePath = /^https?:\/\//i.test(trimmed) || trimmed.includes('/') || trimmed.includes('\\');
+      if (looksLikePath) {
+        attachments.push({
+          filename: path.basename(trimmed.split('?')[0]) || `attachment-${Date.now()}`,
+          path: trimmed,
+          contentType: 'application/octet-stream'
+        });
+        continue;
+      }
+    }
+
     idsToLoad.push(value);
   }
 
@@ -324,8 +432,11 @@ async function updateEmailLog(log, payload) {
   }
 }
 
-async function handleEmailDispatch(db, template, instance, req) {
+async function handleEmailDispatch(db, template, instance, req, context = {}) {
   const record = getPlainRecord(instance);
+  const previousRecord = context.previousRecord || {};
+  const operation = context.operation || template.operation;
+  const changedFields = context.changedFields || getChangedFields(record, previousRecord);
   const mailEnabled = String(template.mail ?? '1') !== '0';
   const emailField = template.attchment || template.attachment || null;
 
@@ -335,12 +446,21 @@ async function handleEmailDispatch(db, template, instance, req) {
     operation: template.operation,
     record_id: record.id ?? null,
     user_id: record.createdBy ?? record.modifyBy ?? record.modifiedBy ?? null,
-    details: record,
+    details: {
+      current: record,
+      previous: previousRecord,
+      changedFields
+    },
     mail_triggered: false,
     status: mailEnabled ? 'pending' : 'skipped'
   });
 
   if (!mailEnabled) {
+    return;
+  }
+
+  if (!shouldTriggerTemplate(template, operation, record, previousRecord)) {
+    await updateEmailLog(log, { status: 'skipped' });
     return;
   }
 
@@ -461,24 +581,68 @@ async function handleEmailDispatch(db, template, instance, req) {
   await updateEmailLog(log, { status: 'skipped' });
 }
 
-async function triggerMail(db, { modelName, instance, operation, req }) {
+async function triggerMail(db, { modelName, instance, operation, req, previousRecord, changedFields }) {
   try {
     if (!db.EmailTemplate) return;
 
-    const template = await db.EmailTemplate.findOne({
+    const templates = await db.EmailTemplate.findAll({
       where: {
-        module: modelName,
-        operation,
-        status: '1'
-      }
+        status: '1',
+        [Op.or]: [
+          { module: modelName },
+          { module: '*' },
+          { module: 'all' }
+        ]
+      },
+      order: [['id', 'DESC']]
     });
 
-    if (!template) return;
+    if (!templates.length) return;
 
-    await handleEmailDispatch(db, template, instance, req);
+    const matched = pickBestModelTemplate(templates, modelName, operation);
+
+    if (!matched) return;
+
+    runInBackground(
+      () => handleEmailDispatch(db, matched, instance, req, { operation, previousRecord, changedFields }),
+      `triggerMail ${modelName}.${operation}`
+    );
   } catch (err) {
     logger.error(`triggerMail failed for ${modelName}.${operation}: ${err.message}`);
   }
+}
+
+function isBlank(value) {
+  return value === undefined || value === null || String(value).trim() === '';
+}
+
+function operationScore(templateOperation, targetOperation) {
+  if (isBlank(templateOperation)) return 10; // any operation
+  return String(templateOperation).toLowerCase() === String(targetOperation || '').toLowerCase() ? 20 : -1;
+}
+
+function modelScore(templateModule, targetModel) {
+  const moduleValue = String(templateModule || '').trim();
+  if (!moduleValue) return -1;
+  if (moduleValue.toLowerCase() === String(targetModel || '').toLowerCase()) return 40;
+  if (moduleValue === '*' || moduleValue.toLowerCase() === 'all') return 20;
+  return -1;
+}
+
+function pickBestModelTemplate(templates = [], modelName, operation) {
+  let best = null;
+  let bestScore = -1;
+  for (const template of templates) {
+    const mScore = modelScore(template.module, modelName);
+    const oScore = operationScore(template.operation, operation);
+    if (mScore < 0 || oScore < 0) continue;
+    const total = mScore + oScore;
+    if (total > bestScore || (total === bestScore && Number(template.id || 0) > Number(best?.id || 0))) {
+      best = template;
+      bestScore = total;
+    }
+  }
+  return best;
 }
 
 function initMailHooks(db) {
@@ -505,11 +669,15 @@ function initMailHooks(db) {
     });
 
     model.addHook('afterUpdate', async (instance, options) => {
+      const previousRecord = { ...(instance?._previousDataValues || {}) };
+      const changedFields = Array.isArray(options?.fields) ? options.fields : (typeof instance.changed === 'function' ? instance.changed() || [] : []);
       triggerMail(db, {
         modelName,
         instance,
         operation: 'update',
-        req: options?.req || null
+        req: options?.req || null,
+        previousRecord,
+        changedFields
       }).catch(err => logger.error(`Mail hook failed for ${modelName}.update: ${err.message}`));
     });
 

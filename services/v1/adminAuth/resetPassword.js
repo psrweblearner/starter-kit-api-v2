@@ -1,7 +1,8 @@
 'use strict';
 
 const bcrypt = require('bcryptjs');
-const { Otp, AdminUser, AdminSession } = require('../../../models');
+const db = require('../../../models');
+const { Otp, AdminUser, AdminSession } = db;
 const { Op } = require('sequelize');
 const { detailQuery } = require('../../../utils/build_query');
 

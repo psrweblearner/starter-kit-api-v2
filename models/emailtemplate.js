@@ -32,6 +32,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('create', 'update', 'delete', 'download'),
         allowNull: true
       },
+      triggerOn: {
+        type: DataTypes.ENUM('always', 'status_change', 'field_change', 'custom_condition'),
+        allowNull: false,
+        defaultValue: 'always'
+      },
+      watchedFields: {
+        type: DataTypes.JSON,
+        allowNull: true
+      },
+      conditionRules: {
+        type: DataTypes.JSON,
+        allowNull: true
+      },
       attchment: {
         type: DataTypes.STRING,
         allowNull: true

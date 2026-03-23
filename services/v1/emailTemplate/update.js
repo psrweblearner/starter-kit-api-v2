@@ -2,6 +2,7 @@
 const { EmailTemplate } = require('../../../models');
 const { resolveConfig } = require('../../../utils/serviceHelper');
 const AppError = require('../../../utils/AppError');
+const normalizePayload = require('./normalizePayload');
 
 const CONFIGS = {
     ADMIN: {}
@@ -21,7 +22,7 @@ module.exports = async (req) => {
         throw new AppError('Email template not found', 404);
     }
 
-    await emailTemplate.update(req.body);
+    await emailTemplate.update(normalizePayload(req.body));
 
     return { data: { status: true, data: emailTemplate } };
 };

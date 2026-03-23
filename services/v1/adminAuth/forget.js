@@ -1,5 +1,6 @@
 'use strict';
-const {Otp,AdminUser} = require('../../../models');
+const db = require('../../../models');
+const {Otp,AdminUser} = db;
 const { Op } = require('sequelize');
 const { detailQuery } = require('../../../utils/build_query');
 const { generateOTP } = require('../../../helper/utils');
