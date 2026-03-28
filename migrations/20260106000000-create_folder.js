@@ -59,8 +59,11 @@ module.exports = {
     const indexNames = new Set(
       (await queryInterface.showIndex(table)).map((idx) => idx.name)
     );
+    // Prefix index: full VARCHAR(1000) × utf8mb4 exceeds InnoDB max key length (3072 bytes).
     if (!indexNames.has('folders_full_path')) {
-      await queryInterface.addIndex(table, ['full_path'], { name: 'folders_full_path' });
+      await queryInterface.addIndex(table, [{ name: 'full_path', length: 767 }], {
+        name: 'folders_full_path'
+      });
     }
     if (!indexNames.has('folders_created_by')) {
       await queryInterface.addIndex(table, ['createdBy'], { name: 'folders_created_by' });
