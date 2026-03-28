@@ -12,6 +12,18 @@ IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
 FULL_IMAGE="${IMAGE_REF}:${IMAGE_TAG}"
 SEQUELIZE_CLI="./node_modules/.bin/sequelize-cli"
 
+# Amazon Linux 2023: use Compose V2 (`docker compose`); legacy `docker-compose` is often absent.
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  else
+    echo "Install Docker Compose (e.g. docker compose plugin or docker-compose)." >&2
+    exit 127
+  fi
+}
+
 mkdir -p "${APP_DIR}"
 
 if [[ ! -f "${COMPOSE_FILE}" ]]; then
@@ -68,8 +80,8 @@ docker run --rm --network host \
   "${FULL_IMAGE}" \
   "${SEQUELIZE_CLI}" db:migrate --env production
 echo ">>> Migrations complete."
-docker-compose -f "${COMPOSE_FILE}" down
-docker-compose -f "${COMPOSE_FILE}" up -d --force-recreate
+compose -f "${COMPOSE_FILE}" down
+compose -f "${COMPOSE_FILE}" up -d --force-recreate
 
 for attempt in $(seq 1 30); do
   health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
@@ -90,8 +102,8 @@ CONTAINER_NAME=${CONTAINER_NAME}
 APP_PORT=${APP_PORT}
 EOF
       export $(cat "${DEPLOY_ENV_FILE}")
-      docker-compose -f "${COMPOSE_FILE}" down
-      docker-compose -f "${COMPOSE_FILE}" up -d --force-recreate
+      compose -f "${COMPOSE_FILE}" down
+      compose -f "${COMPOSE_FILE}" up -d --force-recreate
       echo "Rolled back to ${PREVIOUS_IMAGE}"
     fi
 
