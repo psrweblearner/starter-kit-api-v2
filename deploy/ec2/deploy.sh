@@ -61,7 +61,9 @@ export $(cat "${DEPLOY_ENV_FILE}")
 
 docker pull "${FULL_IMAGE}"
 echo ">>> Running DB migrations..."
-docker run --rm \
+# Host network: .env DB_HOST=127.0.0.1 targets MySQL on the EC2 host (e.g. user_data -p 127.0.0.1:3306:3306).
+# Default bridge would make 127.0.0.1 the throwaway container → ECONNREFUSED.
+docker run --rm --network host \
   --env-file "${ENV_FILE}" \
   "${FULL_IMAGE}" \
   "${SEQUELIZE_CLI}" db:migrate --env production

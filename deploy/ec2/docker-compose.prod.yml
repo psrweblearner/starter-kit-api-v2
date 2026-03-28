@@ -2,14 +2,14 @@ services:
   api:
     image: ${APP_IMAGE}
     container_name: ${CONTAINER_NAME}
+    # Same as migration container: DB on host loopback (127.0.0.1:3306) is reachable only from host network.
+    network_mode: host
     restart: unless-stopped
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
       PORT: ${APP_PORT:-5000}
-    ports:
-      - "127.0.0.1:${APP_PORT:-5000}:${APP_PORT:-5000}"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:${APP_PORT:-5000}/healthz"]
       interval: 30s
