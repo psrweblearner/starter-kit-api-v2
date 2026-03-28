@@ -10,6 +10,18 @@ IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
 FULL_IMAGE="${IMAGE_REF}:${IMAGE_TAG}"
 SEQUELIZE_CLI="./node_modules/.bin/sequelize-cli"
 
+# Use sudo when this user cannot talk to the daemon (common if SSH session predates `usermod -aG docker`).
+DOCKER=(docker)
+if ! docker info >/dev/null 2>&1; then
+  if sudo docker info >/dev/null 2>&1; then
+    DOCKER=(sudo docker)
+    echo ">>> Using sudo for Docker (add ec2-user to group docker and re-login to avoid this)."
+  else
+    echo "Cannot access Docker. Install/start docker and ensure this user may use it (or sudo)." >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "${APP_DIR}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -38,16 +50,16 @@ cd "${APP_DIR}"
 
 export $(grep -v '^#' "${ENV_FILE}" | xargs)
 
-printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
+printf '%s' "${GHCR_TOKEN}" | "${DOCKER[@]}" login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 
-PREVIOUS_IMAGE="$(docker inspect --format='{{.Config.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
+PREVIOUS_IMAGE="$("${DOCKER[@]}" inspect --format='{{.Config.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
 
-docker pull "${FULL_IMAGE}"
+"${DOCKER[@]}" pull "${FULL_IMAGE}"
 
 run_api() {
   local image="$1"
-  docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
-  docker run -d \
+  "${DOCKER[@]}" rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+  "${DOCKER[@]}" run -d \
     --name "${CONTAINER_NAME}" \
     --network host \
     --restart unless-stopped \
@@ -63,7 +75,7 @@ run_api() {
 }
 
 echo ">>> Running DB migrations..."
-docker run --rm --network host \
+"${DOCKER[@]}" run --rm --network host \
   --env-file "${ENV_FILE}" \
   "${FULL_IMAGE}" \
   "${SEQUELIZE_CLI}" db:migrate --env production
@@ -74,7 +86,7 @@ run_api "${FULL_IMAGE}"
 
 # Wait for Docker health (or running if no health yet). Max ~150s then fail + rollback — never indefinite.
 for attempt in $(seq 1 30); do
-  health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
+  health_status="$("${DOCKER[@]}" inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
   echo ">>> Waiting for API (${attempt}/30): ${health_status:-unknown}"
 
   if [[ "${health_status}" == "healthy" || "${health_status}" == "running" ]]; then
@@ -85,7 +97,7 @@ for attempt in $(seq 1 30); do
   if [[ "${attempt}" -eq 30 ]]; then
     echo "Deployment health check failed."
     echo "Container logs:"
-    docker logs "${CONTAINER_NAME}" 2>&1 || true
+    "${DOCKER[@]}" logs "${CONTAINER_NAME}" 2>&1 || true
 
     if [[ -n "${PREVIOUS_IMAGE}" ]]; then
       echo ">>> Rolling back to ${PREVIOUS_IMAGE}"
@@ -98,10 +110,13 @@ for attempt in $(seq 1 30); do
   sleep 5
 done
 
-mapfile -t image_ids < <(docker images "${IMAGE_REF}" --format '{{.ID}}' | awk '!seen[$1]++')
+echo ">>> On this host after deploy (compare when you SSH — same machine as EC2_HOST in GitHub):"
+"${DOCKER[@]}" ps -a
+
+mapfile -t image_ids < <("${DOCKER[@]}" images "${IMAGE_REF}" --format '{{.ID}}' | awk '!seen[$1]++')
 
 if (( ${#image_ids[@]} > 2 )); then
-  docker rmi -f "${image_ids[@]:2}" || true
+  "${DOCKER[@]}" rmi -f "${image_ids[@]:2}" || true
 fi
 
-docker logout ghcr.io || true
+"${DOCKER[@]}" logout ghcr.io || true
