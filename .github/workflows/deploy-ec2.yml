@@ -1,3 +1,4 @@
+# Production API: Docker runs `node app.js` (see Dockerfile) — not PM2; Docker restart policy replaces a process manager.
 name: Deploy to EC2
 
 on:
@@ -180,6 +181,8 @@ jobs:
             ${SUDO} rm -rf "${UPLOAD_DIR}"
             ${SUDO} chown -R "$(id -un):$(id -gn)" "${APP_DIR}"
 
+      # Optional: set repository/environment secret SKIP_DB_SEED=true to never run db:seed:all from deploy.
+      # Otherwise deploy.sh runs seed:all after migrate; Sequelize only applies *pending* seeds (SequelizeData).
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -190,15 +193,17 @@ jobs:
           APP_PORT: ${{ env.APP_PORT }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          SKIP_DB_SEED: ${{ secrets.SKIP_DB_SEED }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT || 22 }}
-          envs: IMAGE_REF,IMAGE_TAG,APP_DIR,CONTAINER_NAME,APP_PORT,GHCR_USERNAME,GHCR_TOKEN
+          envs: IMAGE_REF,IMAGE_TAG,APP_DIR,CONTAINER_NAME,APP_PORT,GHCR_USERNAME,GHCR_TOKEN,SKIP_DB_SEED
           script_stop: true
           script: |
             chmod +x "${APP_DIR}/deploy.sh"
+            export SKIP_DB_SEED="${SKIP_DB_SEED:-}"
             "${APP_DIR}/deploy.sh"
 
       - name: Keep only 2 GHCR versions
