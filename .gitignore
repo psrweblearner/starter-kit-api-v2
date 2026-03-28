@@ -7,7 +7,7 @@
 !.env.example
 
 # never commit private keys (except explicitly allowlisted below)
-*.pem
+#*.pem
 !config/public.pem
 secrets/
 inchbrick-dubai-prod-099368437322.json
