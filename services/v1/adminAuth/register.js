@@ -1,5 +1,6 @@
 'use strict';
-const {AdminUser} = require('../../../models');
+const db = require('../../../models');
+const { AdminUser } = db;
 module.exports = async (req) => {
   const { firstName, lastName, email,mobile,designation,about,address,profile} = req.body;
   const user = req.user?.id || 'system';

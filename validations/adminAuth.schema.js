@@ -43,8 +43,53 @@ const switchRole = z.object({
   }),
 });
 
+const forget = z.object({
+  body: z.object({
+    username: z.string().refine(
+      (val) =>
+        z.string().email().safeParse(val).success ||
+        /^[0-9]{8,15}$/.test(val),
+      {
+        message: "Must be a valid email or mobile number",
+      }
+    ),
+  }),
+});
+
+const verifyOtp = z.object({
+  body: z.object({
+    username: z.string().refine(
+      (val) =>
+        z.string().email().safeParse(val).success ||
+        /^[0-9]{8,15}$/.test(val),
+      {
+        message: "Must be a valid email or mobile number",
+      }
+    ),
+    otp: z.string().regex(/^[0-9]{6}$/, 'OTP must be a 6-digit number'),
+  }),
+});
+
+const resetPassword = z.object({
+  body: z.object({
+    username: z.string().refine(
+      (val) =>
+        z.string().email().safeParse(val).success ||
+        /^[0-9]{8,15}$/.test(val),
+      {
+        message: "Must be a valid email or mobile number",
+      }
+    ),
+    otp: z.string().regex(/^[0-9]{6}$/, 'OTP must be a 6-digit number'),
+    password: z.string().min(8),
+  }),
+});
+
 module.exports = {
   register,
   login,
   switchRole,
+  forget,
+  verifyOtp,
+  resetPassword,
 };

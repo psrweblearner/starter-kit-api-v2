@@ -11,7 +11,9 @@ router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);
 router.route('/admin').get(CTR.Admin.findAll);
 router.route('/admin/:id').get(CTR.Admin.findOne);
 router.route('/admin-auth/switch-role').post(validate(schema.adminAuth.switchRole), CTR.AdminAuth.switchRole);
-
+router.route('/admin-auth/forget-password').post(validate(schema.adminAuth.forget), CTR.AdminAuth.forget);
+router.route('/admin-auth/verify-otp').post(validate(schema.adminAuth.verifyOtp), CTR.AdminAuth.verifyOtp);
+router.route('/admin-auth/reset-password').post(validate(schema.adminAuth.resetPassword), CTR.AdminAuth.resetPassword);
 
 // http://localhost:5000/api/v1/blogs
 router.get('/blogs', CTR.Blog.findAll);
@@ -157,4 +159,13 @@ router.get('/floor-plan/:id', CTR.FloorPlan.findOne);
 router.put('/floor-plan/:id', CTR.FloorPlan.update);
 router.patch('/floor-plan/:id/status', CTR.FloorPlan.updateStatus);
 router.delete('/floor-plan/:id', CTR.FloorPlan.remove);
+
+// http://localhost:5000/api/v1/email-template (Methods [GET,POST,PUT,DELETE]);
+router.route('/email-template').post(CTR.EmailTemplate.create).get(CTR.EmailTemplate.findAll);
+router.route('/email-template/:id').get(CTR.EmailTemplate.findOne).put(CTR.EmailTemplate.update).delete(CTR.EmailTemplate.remove);
+router.patch('/email-template/:id/status',CTR.EmailTemplate.updateStatus);
+
+// http://localhost:5000/admin-api/models (Methods [GET]);
+router.get('/models',CTR.Models.findAllModels);
+router.get('/models/:name/fields',CTR.Models.findModelFields);
 module.exports = router;

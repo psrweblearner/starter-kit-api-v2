@@ -1,6 +1,22 @@
 'use strict';
 
 const models = require("../../models");
+
+const joinBaseUrlAndPath = (baseUrl = "", filePath = "") => {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const path = String(filePath || "").trim();
+
+  if (!base) {
+    return path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  }
+
+  if (!path) {
+    return base;
+  }
+
+  return `${base}/${path.replace(/^\/+/, "")}`;
+};
+
 /* ------------------------------------------------------
    🧠 Hydrate Editor.js minimal structure
 ------------------------------------------------------ */
@@ -34,7 +50,7 @@ const hydrateEditorDescriptionForEdit = async (descriptionJson) => {
       const domain = setting?.value?.replace(/\/$/, "") || "";
       fileMap[f.id] = {
         id: f.id,
-        file: domain + f.file_path,
+        file: joinBaseUrlAndPath(domain, f.file_path),
         type: f.mime_type
       };
     }

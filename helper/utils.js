@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 /**
  * ===================================================
  * uniqueId Function
@@ -78,5 +80,35 @@ const normalizeStoragePath = (filePath) => {
   }
   return normalized;
 };
+const generateOTP = async (digits = 6, time = 5, type = "number") => {
+  let characters = "";
 
-module.exports = { slugify, uniqueId, generateFingerprint, normalizeStoragePath };
+  switch (type) {
+    case "number":
+      characters = "0123456789";
+      break;
+    case "string":
+      characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+      break;
+    case "mix":
+      characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+      break;
+    default:
+      throw new Error("Invalid OTP type. Use number | string | mix");
+  }
+
+  let otp = "";
+
+  for (let i = 0; i < digits; i++) {
+    const index = crypto.randomInt(0, characters.length);
+    otp += characters[index];
+  }
+
+  return {
+    otp,
+    expiresIn: time * 60, // seconds
+    type,
+    length: digits
+  };
+};
+module.exports = { slugify, uniqueId,generateOTP, generateFingerprint, normalizeStoragePath };
