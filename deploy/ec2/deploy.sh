@@ -2,8 +2,6 @@
 set -Eeuo pipefail
 
 APP_DIR="${APP_DIR:-/opt/starter-kit-api}"
-DEPLOY_ENV_FILE="${APP_DIR}/.deploy.env"
-COMPOSE_FILE="${APP_DIR}/docker-compose.prod.yml"
 ENV_FILE="${APP_DIR}/.env.production"
 CONTAINER_NAME="${CONTAINER_NAME:-starter-kit-api}"
 APP_PORT="${APP_PORT:-5000}"
@@ -12,24 +10,7 @@ IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
 FULL_IMAGE="${IMAGE_REF}:${IMAGE_TAG}"
 SEQUELIZE_CLI="./node_modules/.bin/sequelize-cli"
 
-# Amazon Linux 2023: use Compose V2 (`docker compose`); legacy `docker-compose` is often absent.
-compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
-  else
-    echo "Install Docker Compose (e.g. docker compose plugin or docker-compose)." >&2
-    exit 127
-  fi
-}
-
 mkdir -p "${APP_DIR}"
-
-if [[ ! -f "${COMPOSE_FILE}" ]]; then
-  echo "Missing ${COMPOSE_FILE}"
-  exit 1
-fi
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}. Create it on the EC2 host before deploying."
@@ -55,38 +36,49 @@ fi
 
 cd "${APP_DIR}"
 
-# Export environment variables from .env file
 export $(grep -v '^#' "${ENV_FILE}" | xargs)
 
 printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 
 PREVIOUS_IMAGE="$(docker inspect --format='{{.Config.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
 
-cat > "${DEPLOY_ENV_FILE}" <<EOF
-APP_IMAGE=${FULL_IMAGE}
-CONTAINER_NAME=${CONTAINER_NAME}
-APP_PORT=${APP_PORT}
-EOF
-
-# Export deploy environment variables
-export $(cat "${DEPLOY_ENV_FILE}")
-
 docker pull "${FULL_IMAGE}"
+
+run_api() {
+  local image="$1"
+  docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+  docker run -d \
+    --name "${CONTAINER_NAME}" \
+    --network host \
+    --restart unless-stopped \
+    --env-file "${ENV_FILE}" \
+    -e NODE_ENV=production \
+    -e "PORT=${APP_PORT}" \
+    --health-cmd="curl -fsS http://127.0.0.1:${APP_PORT}/healthz >/dev/null || exit 1" \
+    --health-interval=30s \
+    --health-timeout=5s \
+    --health-retries=5 \
+    --health-start-period=20s \
+    "${image}"
+}
+
 echo ">>> Running DB migrations..."
-# Host network: .env DB_HOST=127.0.0.1 targets MySQL on the EC2 host (e.g. user_data -p 127.0.0.1:3306:3306).
-# Default bridge would make 127.0.0.1 the throwaway container → ECONNREFUSED.
 docker run --rm --network host \
   --env-file "${ENV_FILE}" \
   "${FULL_IMAGE}" \
   "${SEQUELIZE_CLI}" db:migrate --env production
 echo ">>> Migrations complete."
-compose -f "${COMPOSE_FILE}" down
-compose -f "${COMPOSE_FILE}" up -d --force-recreate
 
+echo ">>> Starting API container..."
+run_api "${FULL_IMAGE}"
+
+# Wait for Docker health (or running if no health yet). Max ~150s then fail + rollback — never indefinite.
 for attempt in $(seq 1 30); do
   health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${CONTAINER_NAME}" 2>/dev/null || true)"
+  echo ">>> Waiting for API (${attempt}/30): ${health_status:-unknown}"
 
   if [[ "${health_status}" == "healthy" || "${health_status}" == "running" ]]; then
+    echo ">>> API is up (${health_status})."
     break
   fi
 
@@ -96,15 +88,8 @@ for attempt in $(seq 1 30); do
     docker logs "${CONTAINER_NAME}" 2>&1 || true
 
     if [[ -n "${PREVIOUS_IMAGE}" ]]; then
-      cat > "${DEPLOY_ENV_FILE}" <<EOF
-APP_IMAGE=${PREVIOUS_IMAGE}
-CONTAINER_NAME=${CONTAINER_NAME}
-APP_PORT=${APP_PORT}
-EOF
-      export $(cat "${DEPLOY_ENV_FILE}")
-      compose -f "${COMPOSE_FILE}" down
-      compose -f "${COMPOSE_FILE}" up -d --force-recreate
-      echo "Rolled back to ${PREVIOUS_IMAGE}"
+      echo ">>> Rolling back to ${PREVIOUS_IMAGE}"
+      run_api "${PREVIOUS_IMAGE}"
     fi
 
     exit 1
