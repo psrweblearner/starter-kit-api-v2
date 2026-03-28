@@ -81,6 +81,20 @@ echo ">>> Running DB migrations..."
   "${SEQUELIZE_CLI}" db:migrate --env production
 echo ">>> Migrations complete."
 
+# Seeders: config uses seederStorage 'sequelize' → completed seeds live in SequelizeData.
+# db:seed:all only runs *pending* seeders; already-applied files are not re-run (no duplicate runs).
+# Set SKIP_DB_SEED=1 or true on the host env (export before deploy) or in CI to skip this block entirely.
+if [[ "${SKIP_DB_SEED:-}" == "1" || "${SKIP_DB_SEED:-}" == "true" ]]; then
+  echo ">>> Skipping db:seed:all (SKIP_DB_SEED is set)."
+else
+  echo ">>> Running DB seeders (pending only; already seeded files are skipped)..."
+  "${DOCKER[@]}" run --rm --network host \
+    --env-file "${ENV_FILE}" \
+    "${FULL_IMAGE}" \
+    "${SEQUELIZE_CLI}" db:seed:all --env production
+  echo ">>> Seeders complete."
+fi
+
 echo ">>> Starting API container..."
 run_api "${FULL_IMAGE}"
 
