@@ -156,6 +156,33 @@ function shouldTriggerTemplate(template, operation, record = {}, previousRecord 
   return true;
 }
 
+/** Columns added by migrations/20260323142800-add-email-template-trigger-fields.js */
+const OPTIONAL_EMAIL_TEMPLATE_TRIGGER_COLUMNS = ['triggerOn', 'watchedFields', 'conditionRules'];
+
+function isMissingOptionalTemplateColumnError(err) {
+  const msg = String(err?.message || '');
+  if (!msg.includes('Unknown column')) return false;
+  return OPTIONAL_EMAIL_TEMPLATE_TRIGGER_COLUMNS.some(
+    col => msg.includes(`'${col}'`) || msg.includes(`\`${col}\``) || msg.includes(col)
+  );
+}
+
+async function findEmailTemplatesForTrigger(db, where) {
+  const options = { where, order: [['id', 'DESC']] };
+  try {
+    return await db.EmailTemplate.findAll(options);
+  } catch (err) {
+    if (!isMissingOptionalTemplateColumnError(err)) throw err;
+    logger.warn(
+      'EmailTemplates table is missing trigger columns (triggerOn / watchedFields / conditionRules). Run: npm run db:migrate. Mail triggers will behave as triggerOn=always until then.'
+    );
+    return await db.EmailTemplate.findAll({
+      ...options,
+      attributes: { exclude: OPTIONAL_EMAIL_TEMPLATE_TRIGGER_COLUMNS }
+    });
+  }
+}
+
 function parseMailField(mailField) {
   if (!mailField) return {};
   if (typeof mailField === 'object') return mailField;
@@ -585,16 +612,13 @@ async function triggerMail(db, { modelName, instance, operation, req, previousRe
   try {
     if (!db.EmailTemplate) return;
 
-    const templates = await db.EmailTemplate.findAll({
-      where: {
-        status: '1',
-        [Op.or]: [
-          { module: modelName },
-          { module: '*' },
-          { module: 'all' }
-        ]
-      },
-      order: [['id', 'DESC']]
+    const templates = await findEmailTemplatesForTrigger(db, {
+      status: '1',
+      [Op.or]: [
+        { module: modelName },
+        { module: '*' },
+        { module: 'all' }
+      ]
     });
 
     if (!templates.length) return;
