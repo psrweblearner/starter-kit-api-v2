@@ -94,6 +94,13 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
           INTERNAL_SECRET: ${{ secrets.INTERNAL_SECRET }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_SECURE: ${{ secrets.MAIL_SECURE }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM_NAME: ${{ secrets.MAIL_FROM_NAME }}
         run: |
           set -euo pipefail
           : "${DB_HOST:?missing secret DB_HOST}"
@@ -130,6 +137,14 @@ jobs:
             [[ -n "${REDIS_URL:-}" ]] && printf 'REDIS_URL=%s\n' "$REDIS_URL"
             [[ -n "${UPSTASH_REDIS_URL:-}" ]] && printf 'UPSTASH_REDIS_URL=%s\n' "$UPSTASH_REDIS_URL"
             [[ -n "${INTERNAL_SECRET:-}" ]] && printf 'INTERNAL_SECRET=%s\n' "$INTERNAL_SECRET"
+
+            [[ -n "${MAIL_HOST:-}" ]] && printf 'MAIL_HOST=%s\n' "$MAIL_HOST"
+            [[ -n "${MAIL_PORT:-}" ]] && printf 'MAIL_PORT=%s\n' "$MAIL_PORT"
+            [[ -n "${MAIL_SECURE:-}" ]] && printf 'MAIL_SECURE=%s\n' "$MAIL_SECURE"
+            [[ -n "${MAIL_USER:-}" ]] && printf 'MAIL_USER=%s\n' "$MAIL_USER"
+            [[ -n "${MAIL_PASS:-}" ]] && printf 'MAIL_PASS=%s\n' "$MAIL_PASS"
+            [[ -n "${MAIL_FROM:-}" ]] && printf 'MAIL_FROM=%s\n' "$MAIL_FROM"
+            [[ -n "${MAIL_FROM_NAME:-}" ]] && printf 'MAIL_FROM_NAME=%s\n' "$MAIL_FROM_NAME"
           } > .env.production
 
           key_count="$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' .env.production || true)"
