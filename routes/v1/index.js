@@ -2,8 +2,19 @@ const express = require('express');
 const router = express.Router();
 const CTR = require('../../controller/v1');
 const adminAuth = require('../../middleware/adminAuth');
+const userAuth = require('../../middleware/userAuth');
+const AppError = require('../../utils/AppError');
 const validate = require('../../middleware/validate');
 const schema = require('../../validations');
+
+const userAuthRouter = express.Router();
+
+const protectUserOrAdmin = (req, res, next) => {
+  if (!req.user) {
+    return next(new AppError('Unauthorized', 401));
+  }
+  return next();
+};
 // Public API
 // http://localhost:5000/api/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
@@ -19,6 +30,28 @@ router.route('/admin-auth/reset-password').post(validate(schema.adminAuth.resetP
 router.get('/blogs', CTR.Blog.findAll);
 router.get('/blogs/:id', CTR.Blog.findOne);
 
+userAuthRouter.route('/register').post(validate(schema.userAuth.register), CTR.UserAuth.register);
+userAuthRouter.route('/login').post(validate(schema.userAuth.login), CTR.UserAuth.login);
+userAuthRouter.route('/refresh-token').post(CTR.UserAuth.refreshToken);
+userAuthRouter.route('/forget-password').post(validate(schema.userAuth.forget), CTR.UserAuth.forget);
+userAuthRouter.route('/verify-otp').post(validate(schema.userAuth.verifyOtp), CTR.UserAuth.verifyOtp);
+userAuthRouter.route('/reset-password').post(validate(schema.userAuth.resetPassword), CTR.UserAuth.resetPassword);
+
+// Protected user-auth routes only
+// NOTE:
+// - app.js already runs adminAuth.identify globally, so admin sessions set req.user.
+// - here we also identify user sessions, then allow either authenticated user or admin.
+userAuthRouter.use(userAuth.identify);
+userAuthRouter.use(protectUserOrAdmin);
+userAuthRouter.route('/auth-info').get(CTR.UserAuth.authInfo);
+userAuthRouter.route('/users').post(CTR.User.create).get(CTR.User.findAll);
+userAuthRouter.route('/users/:id').get(CTR.User.findOne).put(CTR.User.update).patch(CTR.User.update);
+
+router.use('/user-auth', userAuthRouter);
+
+
+
+
 // Admin API
 router.use(adminAuth.protect);
 
@@ -30,6 +63,7 @@ router.route('/admin/:id/status').patch(CTR.Admin.toggle);
 router.post('/assign-role-user', CTR.Admin.assignRoleUser);
 router.post('/assign-special-permissions', CTR.Admin.assignSpecialPermission);
 router.delete('/reset-special-permissions', CTR.Admin.resetSpecialPermissions);
+
 
 
 // http://localhost:5000/api/v1/roles
