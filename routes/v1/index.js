@@ -16,7 +16,11 @@ const protectUserOrAdmin = (req, res, next) => {
   return next();
 };
 // Public API
-// http://localhost:5000/api/v1/admin-auth/login
+
+// Tools
+router.route('/competitor/analyze').post(validate(schema.competitor.analyze),CTR.Competitor.analyze);
+router.route('/competitor/result/:jobId').get(CTR.Competitor.getResult);
+// http://localhost:5000/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
 router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);
 router.route('/admin').get(CTR.Admin.findAll);
@@ -44,10 +48,10 @@ userAuthRouter.route('/reset-password').post(validate(schema.userAuth.resetPassw
 userAuthRouter.use(userAuth.identify);
 userAuthRouter.use(protectUserOrAdmin);
 userAuthRouter.route('/auth-info').get(CTR.UserAuth.authInfo);
-userAuthRouter.route('/users').post(CTR.User.create).get(CTR.User.findAll);
-userAuthRouter.route('/users/:id').get(CTR.User.findOne).put(CTR.User.update).patch(CTR.User.update);
+// userAuthRouter.route('/users').post(CTR.User.create).get(CTR.User.findAll);
+// userAuthRouter.route('/users/:id').get(CTR.User.findOne).put(CTR.User.update).patch(CTR.User.update);
 
-router.use('/user-auth', userAuthRouter);
+// router.use('/user-auth', userAuthRouter);
 
 
 
@@ -64,8 +68,8 @@ router.post('/assign-role-user', CTR.Admin.assignRoleUser);
 router.post('/assign-special-permissions', CTR.Admin.assignSpecialPermission);
 router.delete('/reset-special-permissions', CTR.Admin.resetSpecialPermissions);
 
-
-
+router.route('/users').get(CTR.User.findAll);
+router.route('/users/:id').get(CTR.User.findOne);
 // http://localhost:5000/api/v1/roles
 router.route('/roles').post(CTR.Roles.create).get(CTR.Roles.findAll);
 router.route('/roles/:id').get(CTR.Roles.findOne).delete(CTR.Roles.remove);

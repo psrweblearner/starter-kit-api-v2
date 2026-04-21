@@ -1,32 +1,16 @@
 'use strict';
-
 const { User } = require('../../../models');
-const AppError = require('../../../utils/AppError');
-
+const { listQuery } = require('../../../utils/build_query');
+const CacheKey = 'users-list:'
 module.exports = async (req) => {
-  const isAdmin = !!req.user?.role;
-  if (!isAdmin) {
-    throw new AppError('Forbidden: Only admins can view all users', 403);
-  }
+    const key = `${CacheKey}${JSON.stringify(req.query)}`;
+    const { data, name } = await listQuery(User, req, key, {
+        defaultAttributes: ["*"],
+        order: [["id", "DESC"]],
+    });
 
-  const users = await User.findAll({
-    attributes: [
-      'id',
-      'name',
-      'email',
-      'mobile',
-      'businessName',
-      'addressLine1',
-      'addressLine2',
-      'state',
-      'city',
-      'country',
-      'pincode',
-      'createdAt',
-      'updatedAt'
-    ],
-    order: [['id', 'DESC']]
-  });
-
-  return users;
+    if (!data) {
+        throw new Error('Error fetching users', 400);
+    }
+    return { data, name };
 };

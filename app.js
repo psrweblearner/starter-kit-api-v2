@@ -1,5 +1,5 @@
 'use strict';
-require('dotenv').config();
+require('dotenv').config({ override: process.env.NODE_ENV !== 'production' });
 
 const express = require('express');
 const app = express();
