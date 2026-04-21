@@ -20,6 +20,7 @@ const protectUserOrAdmin = (req, res, next) => {
 // Tools
 router.route('/competitor/analyze').post(validate(schema.competitor.analyze),CTR.Competitor.analyze);
 router.route('/competitor/result/:jobId').get(CTR.Competitor.getResult);
+router.route('/competitor/result/:jobId/subscribe').get(CTR.Competitor.subscribeResult);
 // http://localhost:5000/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
 router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);

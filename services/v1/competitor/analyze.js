@@ -1,7 +1,7 @@
 'use strict';
 const analyzeQueue = require('../../../utils/queue/analyze.queue');
 module.exports = async (req) => {
-  const { domain, competitors } = req.body;
+  const { domain, competitors, businessName } = req.body;
 
   const cleanDomain = normalizeDomain(domain);
   const cleanCompetitors = competitors.map(normalizeDomain);
@@ -9,6 +9,7 @@ module.exports = async (req) => {
   const job = await analyzeQueue.add('analyze-job', {
     domain: cleanDomain,
     competitors: cleanCompetitors,
+    businessName: businessName ? String(businessName).trim() : null,
   });
   return {
     jobId: job.id,
