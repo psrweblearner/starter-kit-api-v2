@@ -21,6 +21,103 @@ const protectUserOrAdmin = (req, res, next) => {
 router.route('/competitor/analyze').post(validate(schema.competitor.analyze),CTR.Competitor.analyze);
 router.route('/competitor/result/:jobId').get(CTR.Competitor.getResult);
 router.route('/competitor/result/:jobId/subscribe').get(CTR.Competitor.subscribeResult);
+router.route('/competitor/result/:jobId/clear-cache').post(CTR.Competitor.clearResultCache);
+router.route('/sitemap/generate').post(validate(schema.sitemap.generate), CTR.Sitemap.generate);
+router.route('/sitemap/stop/:jobId').post(CTR.Sitemap.stop);
+router.route('/sitemap/result/:jobId').get(CTR.Sitemap.getResult);
+router.route('/sitemap/result/:jobId/clear-cache').post(CTR.Sitemap.clearResultCache);
+router.route('/sitemap-automation/public/script.js').get(CTR['Sitemap-automation'].publicScript);
+router.route('/sitemap-automation/public/config').get(CTR['Sitemap-automation'].publicConfig);
+router.route('/sitemap-automation/public/ping').post(CTR['Sitemap-automation'].publicPing);
+router
+  .route('/sitemap-automation/site')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].upsertSite),
+    CTR['Sitemap-automation'].upsertSite
+  )
+  .get(
+    userAuth.identify,
+    protectUserOrAdmin,
+    CTR['Sitemap-automation'].listSites
+  );
+router
+  .route('/sitemap-automation/site/:id')
+  .get(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].getSite
+  )
+  .delete(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].deleteSite
+  );
+router
+  .route('/sitemap-automation/site/:id/generate-script')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].generateScript
+  );
+router
+  .route('/sitemap-automation/site/:id/verify')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].verify
+  );
+router
+  .route('/sitemap-automation/site/:id/schema')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].saveSchema),
+    CTR['Sitemap-automation'].saveSchema
+  );
+router
+  .route('/sitemap-automation/site/:id/cron')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].saveCron),
+    CTR['Sitemap-automation'].saveCron
+  );
+router
+  .route('/sitemap-automation/site/:id/publish-config')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].savePublishConfig),
+    CTR['Sitemap-automation'].savePublishConfig
+  );
+router
+  .route('/sitemap-automation/site/:id/run-now')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].runNow
+  );
+router
+  .route('/sitemap-automation/site/:id/runs')
+  .get(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].withSiteId),
+    CTR['Sitemap-automation'].getRuns
+  );
+router.route('/qr/generate').post(validate(schema.qr.generate), CTR.Qr.generate);
+router.route('/qr/result/:jobId').get(CTR.Qr.getResult);
+router.route('/qr/result/:jobId/clear-cache').post(CTR.Qr.clearResultCache);
+router.route('/pagespeed/generate').post(validate(schema.pagespeed.generate), CTR.Pagespeed.generate);
+router.route('/pagespeed/result/:jobId').get(CTR.Pagespeed.getResult);
+router.route('/pagespeed/result/:jobId/clear-cache').post(CTR.Pagespeed.clearResultCache);
 // http://localhost:5000/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
 router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);
@@ -52,7 +149,7 @@ userAuthRouter.route('/auth-info').get(CTR.UserAuth.authInfo);
 // userAuthRouter.route('/users').post(CTR.User.create).get(CTR.User.findAll);
 // userAuthRouter.route('/users/:id').get(CTR.User.findOne).put(CTR.User.update).patch(CTR.User.update);
 
-// router.use('/user-auth', userAuthRouter);
+router.use('/user-auth', userAuthRouter);
 
 
 
@@ -85,6 +182,7 @@ router.route('/api-client/:id').get(CTR.Apiclient.findOne).patch(CTR.Apiclient.u
 //http://localhost:5000/api/v1/cache-config
 router.route('/cache-config').get(CTR.CacheConfig.findAll).post(CTR.CacheConfig.upsert);
 router.route('/cache-config/:scope/toggle').patch(CTR.CacheConfig.toggle);
+router.route('/queue/monitor').get(CTR.Queue.monitor);
 
 
 // http://localhost:5000/api/v1/blogs

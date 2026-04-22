@@ -5,7 +5,9 @@ const AppError = require("../utils/AppError");
 const catchAsync = require("../utils/catchAsync");
 
 exports.identify = catchAsync(async (req, res, next) => {
-  const token = req.cookies.user_auth_token;
+  const cookieToken = req.cookies.user_auth_token;
+  const headerToken = extractBearerToken(req);
+  const token = cookieToken || headerToken;
 
   if (token) {
     try {
@@ -34,7 +36,9 @@ exports.identify = catchAsync(async (req, res, next) => {
 });
 
 exports.protect = catchAsync(async (req, res, next) => {
-  const token = req.cookies.user_auth_token;
+  const cookieToken = req.cookies.user_auth_token;
+  const headerToken = extractBearerToken(req);
+  const token = cookieToken || headerToken;
   if (!token) return next(new AppError('Unauthorized', 401));
 
   try {
@@ -62,3 +66,12 @@ exports.protect = catchAsync(async (req, res, next) => {
     return next(new AppError('Unauthorized', 401));
   }
 });
+
+function extractBearerToken(req) {
+  const authHeader = req.headers?.authorization;
+  if (!authHeader || typeof authHeader !== 'string') return null;
+  const [scheme, token] = authHeader.split(' ');
+  if (!scheme || !token) return null;
+  if (scheme.toLowerCase() !== 'bearer') return null;
+  return token.trim() || null;
+}

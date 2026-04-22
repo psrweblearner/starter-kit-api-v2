@@ -20,6 +20,22 @@ const normalizeDomain = (value) => {
 
 module.exports = async function apiProtection(req, res, next) {
     try {
+        const isPublicSitemapAutomationRoute = String(req.path || '').startsWith('/v1/sitemap-automation/public/');
+        if (isPublicSitemapAutomationRoute) {
+            if (req.headers.origin) {
+                res.header('Access-Control-Allow-Origin', req.headers.origin);
+                res.header('Access-Control-Allow-Credentials', 'true');
+            } else {
+                res.header('Access-Control-Allow-Origin', '*');
+            }
+            res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, X-Requested-With');
+            res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            if (req.method === 'OPTIONS') {
+                return res.sendStatus(200);
+            }
+            return next();
+        }
+
         const origin = req.headers.origin || '';
         const referer = req.headers.referer || '';
         const host = req.headers.host || '';

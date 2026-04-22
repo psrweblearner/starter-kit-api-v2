@@ -1,16 +1,7 @@
 const catchAsync = require('../../utils/catchAsync');
 const services = require('../../services/v1');
-const reportStore = require('../../temp/report.store');
-const { Queue } = require('bullmq');
-const IORedis = require('ioredis');
+const { getSnapshot, clearSnapshot } = require('../../utils/jobSnapshot');
 const { subscribeToJobEvents } = require('../../utils/queue/job-notification');
-
-const queueConnection = new IORedis(process.env.REDIS_URL, {
-  maxRetriesPerRequest: null,
-});
-const analyzeQueue = new Queue('analyze-queue', {
-  connection: queueConnection,
-});
 
 exports.analyze = catchAsync(async (req, res) => {
   const data = await services.competitor.analyze(req);
@@ -24,8 +15,18 @@ exports.analyze = catchAsync(async (req, res) => {
 
 exports.getResult = catchAsync(async (req, res) => {
   const { jobId } = req.params;
-  const snapshot = await resolveJobSnapshot(jobId);
+  const snapshot = await getSnapshot(jobId);
   return res.json(snapshot);
+});
+
+exports.clearResultCache = catchAsync(async (req, res) => {
+  const { jobId } = req.params;
+  await clearSnapshot(jobId);
+  return res.json({
+    success: true,
+    message: 'Competitor result snapshot cache cleared',
+    data: { jobId: String(jobId) },
+  });
 });
 
 exports.subscribeResult = catchAsync(async (req, res) => {
@@ -47,10 +48,10 @@ exports.subscribeResult = catchAsync(async (req, res) => {
     jobId: String(jobId),
   });
 
-  const firstSnapshot = await resolveJobSnapshot(jobId);
+  const firstSnapshot = await getSnapshot(jobId);
   sendEvent('snapshot', firstSnapshot);
 
-  if (firstSnapshot.status !== 'processing') {
+  if (firstSnapshot.status !== 'processing' && firstSnapshot.status !== 'pending') {
     res.end();
     return;
   }
@@ -60,12 +61,12 @@ exports.subscribeResult = catchAsync(async (req, res) => {
   };
 
   const unsubscribe = await subscribeToJobEvents(jobId, async (eventPayload) => {
-    const latest = await resolveJobSnapshot(jobId);
+    const latest = await getSnapshot(jobId);
     sendEvent('job-update', {
       ...latest,
       event: eventPayload,
     });
-    if (latest.status !== 'processing') {
+    if (latest.status !== 'processing' && latest.status !== 'pending') {
       unsubscribe();
       closeConnection();
     }
@@ -74,8 +75,8 @@ exports.subscribeResult = catchAsync(async (req, res) => {
   const heartbeat = setInterval(async () => {
     if (res.writableEnded) return;
 
-    const latest = await resolveJobSnapshot(jobId);
-    if (latest.status !== 'processing') {
+    const latest = await getSnapshot(jobId);
+    if (latest.status !== 'processing' && latest.status !== 'pending') {
       sendEvent('job-update', latest);
       clearInterval(heartbeat);
       unsubscribe();
@@ -94,40 +95,3 @@ exports.subscribeResult = catchAsync(async (req, res) => {
     closeConnection();
   });
 });
-
-async function resolveJobSnapshot(jobId) {
-  const data = await reportStore.get(jobId);
-  if (data) {
-    return {
-      status: 'completed',
-      data,
-    };
-  }
-
-  const job = await analyzeQueue.getJob(jobId);
-  if (!job) {
-    return {
-      status: 'processing',
-    };
-  }
-
-  const state = await job.getState();
-
-  if (state === 'failed') {
-    return {
-      status: 'failed',
-      error: job.failedReason || 'Job failed',
-    };
-  }
-
-  if (state === 'completed') {
-    return {
-      status: 'completed',
-      data: job.returnvalue || null,
-    };
-  }
-
-  return {
-    status: 'processing',
-  };
-}

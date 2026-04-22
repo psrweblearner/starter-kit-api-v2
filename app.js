@@ -10,6 +10,8 @@ const requestLogger = require('./middleware/requestLogger');
 const adminAuth = require('./middleware/adminAuth');
 const cookieParser = require('cookie-parser');
 const PORT = process.env.PORT || 5000;
+require('./utils/queue/worker');
+const sitemapAutomationScheduler = require('./services/v1/sitemap-automation/scheduler.service');
 
 
 /* 
@@ -52,4 +54,5 @@ app.use(require('./middleware/errorHandler'));
 const server = http.createServer(app);
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  sitemapAutomationScheduler.startScheduler();
 });

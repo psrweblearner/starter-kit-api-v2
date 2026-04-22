@@ -63,3 +63,18 @@ exports.get = async (jobId) => {
 
   return store.get(normalizedJobId) || null;
 };
+
+exports.clear = async (jobId) => {
+  const normalizedJobId = String(jobId);
+  const client = getRedisClient();
+
+  if (client) {
+    try {
+      await client.del(buildKey(normalizedJobId));
+    } catch (_error) {
+      // Ignore Redis clear failure and continue with memory cleanup.
+    }
+  }
+
+  store.delete(normalizedJobId);
+};
