@@ -3,14 +3,36 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+async function fetchPage(url) {
+  return axios.get(url, {
+    timeout: 10000,
+    maxRedirects: 5,
+    validateStatus: (status) => status >= 200 && status < 400,
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+}
+
 module.exports = async (domain) => {
   const startedAt = Date.now();
-  const pageUrl = `https://${domain}`;
+  const urls = [`https://${domain}`, `http://${domain}`];
 
   try {
-    const response = await axios.get(pageUrl, {
-      timeout: 10000
-    });
+    let response;
+    let lastError;
+    for (const pageUrl of urls) {
+      try {
+        response = await fetchPage(pageUrl);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!response) throw lastError || new Error('Unable to fetch page');
     const data = response?.data || '';
 
     const $ = cheerio.load(data);
@@ -84,7 +106,7 @@ module.exports = async (domain) => {
     };
   } catch (e) {
     return {
-      status: 'failed',
+      status: 'partial',
       elapsedMs: Date.now() - startedAt,
       error: e?.message || 'Scrape failed',
       extracted: null,

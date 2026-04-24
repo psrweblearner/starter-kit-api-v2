@@ -51,11 +51,25 @@ const savePublishConfig = z.object({
   }).strict(),
 });
 
+const checkDomainEligibility = z.object({
+  body: z.object({
+    domain: z
+      .string()
+      .trim()
+      .min(1, 'domain is required')
+      .transform((value) => normalizeAutomationHost(value))
+      .refine((value) => !!value, {
+        message: 'Invalid domain. Use a valid hostname like example.com, localhost, localhost:3001, or 127.0.0.1',
+      }),
+  }).strict(),
+});
+
 const withSiteId = siteIdParam;
 
 module.exports = {
   upsertSite,
   withSiteId,
+  checkDomainEligibility,
   saveSchema,
   saveCron,
   savePublishConfig,

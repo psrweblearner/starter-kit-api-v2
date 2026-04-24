@@ -81,6 +81,19 @@ exports.verify = catchAsync(async (req, res) => {
   });
 });
 
+exports.checkDomainEligibility = catchAsync(async (req, res) => {
+  const userId = getUserIdFromReq(req);
+  const data = await automationService().checkDomainEligibility({
+    userId,
+    domain: req.body.domain,
+  });
+  return res.status(200).json({
+    success: true,
+    message: 'Domain eligibility check completed',
+    data,
+  });
+});
+
 exports.saveSchema = catchAsync(async (req, res) => {
   const userId = getUserIdFromReq(req);
   const data = await automationService().saveSchemaMarkup({

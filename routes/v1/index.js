@@ -22,6 +22,11 @@ router.route('/competitor/analyze').post(validate(schema.competitor.analyze),CTR
 router.route('/competitor/result/:jobId').get(CTR.Competitor.getResult);
 router.route('/competitor/result/:jobId/subscribe').get(CTR.Competitor.subscribeResult);
 router.route('/competitor/result/:jobId/clear-cache').post(CTR.Competitor.clearResultCache);
+router.route('/audit/run').post(validate(schema.audit.run), CTR.Audit.run);
+router.route('/audit/section-narratives').post(CTR.Audit.sectionNarratives);
+router.route('/audit/result/:jobId').get(CTR.Audit.getResult);
+router.route('/audit/result/:jobId/subscribe').get(CTR.Audit.subscribeResult);
+router.route('/audit/result/:jobId/clear-cache').post(CTR.Audit.clearResultCache);
 router.route('/sitemap/generate').post(validate(schema.sitemap.generate), CTR.Sitemap.generate);
 router.route('/sitemap/stop/:jobId').post(CTR.Sitemap.stop);
 router.route('/sitemap/result/:jobId').get(CTR.Sitemap.getResult);
@@ -41,6 +46,14 @@ router
     userAuth.identify,
     protectUserOrAdmin,
     CTR['Sitemap-automation'].listSites
+  );
+router
+  .route('/sitemap-automation/site/check-eligibility')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['sitemap-automation'].checkDomainEligibility),
+    CTR['Sitemap-automation'].checkDomainEligibility
   );
 router
   .route('/sitemap-automation/site/:id')

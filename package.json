@@ -34,6 +34,7 @@
   "license": "ISC",
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
+    "@google/generative-ai": "^0.24.1",
     "@upstash/redis": "^1.36.0",
     "archiver": "^7.0.1",
     "aws-sdk": "^2.1693.0",

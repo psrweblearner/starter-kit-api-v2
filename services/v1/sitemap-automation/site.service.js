@@ -1,6 +1,7 @@
 'use strict';
 
 const axios = require('axios');
+const cheerio = require('cheerio');
 const { Op } = require('sequelize');
 const { AutomationSite, AutomationRun } = require('../../../models');
 const { normalizeAutomationHost, buildAutomationStartUrl } = require('../../../utils/automationHost');
@@ -173,6 +174,28 @@ async function verifySiteConnection({ userId, siteId }) {
   };
 }
 
+async function checkDomainEligibility({ userId, domain }) {
+  void userId;
+  const normalized = normalizeAutomationHost(domain);
+  if (!normalized) {
+    throw new AppError('Invalid domain', 400);
+  }
+
+  const startUrl = buildAutomationStartUrl(normalized);
+  const crawlCount = await crawlInternalUrlsCount(startUrl, 11);
+  const isEligible = crawlCount > 10;
+
+  return {
+    domain: normalized,
+    discoveredUrlCount: crawlCount,
+    minimumRequired: 11,
+    isEligible,
+    message: isEligible
+      ? 'Domain qualifies for automation setup.'
+      : 'This domain currently does not meet the automation eligibility criteria. Please use a domain with more than 10 crawlable internal pages.',
+  };
+}
+
 async function saveSchemaMarkup({ userId, siteId, schemaMarkupText }) {
   const site = await getOwnedSiteOrThrow(siteId, userId);
   await site.update({
@@ -312,10 +335,87 @@ async function savePublishConfig({ userId, siteId, publishEndpoint, publishSecre
   return serializeSite(site, latestRun);
 }
 
+function canonicalizeCrawlUrl(raw, base) {
+  try {
+    const parsed = new URL(String(raw || '').trim(), base);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    parsed.hash = '';
+    parsed.search = '';
+    if (parsed.pathname.length > 1) {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+    }
+    return parsed.toString();
+  } catch (_error) {
+    return null;
+  }
+}
+
+function hostForUrl(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch (_error) {
+    return '';
+  }
+}
+
+async function crawlInternalUrlsCount(startUrl, maxCount) {
+  const start = canonicalizeCrawlUrl(startUrl);
+  if (!start) return 0;
+  const allowedHost = hostForUrl(start);
+  const queue = [start];
+  const visited = new Set();
+  const queued = new Set([start]);
+  const timeout = 8000;
+  const maxVisits = Math.max(maxCount, 11);
+
+  while (queue.length > 0 && visited.size < maxVisits) {
+    const current = queue.shift();
+    if (!current) continue;
+    if (visited.has(current)) continue;
+
+    try {
+      const response = await axios.get(current, {
+        timeout,
+        responseType: 'text',
+        maxRedirects: 5,
+        validateStatus: (status) => status >= 200 && status < 500,
+        headers: {
+          'user-agent': 'RankpilotEligibilityBot/1.0',
+          accept: 'text/html,application/xhtml+xml',
+        },
+      });
+      if (response.status >= 400) continue;
+
+      visited.add(current);
+      if (visited.size >= maxVisits) break;
+
+      const contentType = String(response.headers?.['content-type'] || '').toLowerCase();
+      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) continue;
+
+      const $ = cheerio.load(String(response.data || ''));
+      $('a[href]').each((_index, el) => {
+        if (visited.size >= maxVisits) return;
+        const href = $(el).attr('href');
+        const next = canonicalizeCrawlUrl(href, current);
+        if (!next) return;
+        if (hostForUrl(next) !== allowedHost) return;
+        if (visited.has(next) || queued.has(next)) return;
+        queued.add(next);
+        queue.push(next);
+      });
+    } catch (_error) {
+      // Ignore failed pages for eligibility sampling.
+    }
+  }
+
+  return visited.size;
+}
+
 module.exports = {
   upsertSiteConfig,
   listSites,
   getSiteConfig,
+  checkDomainEligibility,
   generateInstallScript,
   verifySiteConnection,
   saveSchemaMarkup,

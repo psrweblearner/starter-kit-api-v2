@@ -8,6 +8,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 const sitemapLive = require('../../../utils/sitemapLive');
+const { loadExistingSitemapBaseline } = require('./sitemap-baseline.service');
 
 const DEFAULT_MAX_URLS = Number(process.env.SITEMAP_MAX_URLS || 50000);
 const DEFAULT_MAX_DEPTH = Number(process.env.SITEMAP_MAX_DEPTH || 10);
@@ -19,6 +20,7 @@ const EXTERNAL_URL_CAP = 10000;
 const BROKEN_URL_CAP = 10000;
 const LIVE_LIST_PREVIEW = 120;
 const PROGRESS_FLUSH_MS = 250;
+const DELTA_LIST_PREVIEW = 200;
 
 const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 120 });
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 120 });
@@ -34,7 +36,6 @@ module.exports = async function crawlAndBuildSitemap(payload) {
   const maxDepth = normalizeInteger(payload.maxDepth, DEFAULT_MAX_DEPTH, 1, 15);
   const concurrency = normalizeInteger(payload.concurrency, DEFAULT_CONCURRENCY, 1, 60);
   const timeoutMs = normalizeInteger(process.env.SITEMAP_REQUEST_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 1000, 30000);
-
   let stopRequested = false;
   let lastProgressFlush = 0;
 
@@ -46,8 +47,36 @@ module.exports = async function crawlAndBuildSitemap(payload) {
     await sitemapLive.setProgress(jobId, progress);
   };
 
+  await flushProgress({
+    stage: 'baseline',
+    statusText: 'Checking existing sitemap cache...',
+    urlsInSitemap: 0,
+    queueDepth: 0,
+    externalCount: 0,
+    notFoundCount: 0,
+    failedCount: 0,
+    externalUrls: [],
+    notFoundUrls: [],
+    effectiveMaxUrls: maxUrls,
+    stopRequested: false,
+    processedPages: 0,
+    activeConcurrency: 0,
+  }, true);
+
+  const baseline = payload.baseline && typeof payload.baseline === 'object'
+    ? payload.baseline
+    : await loadExistingSitemapBaseline({
+      startUrl: startUrl || `https://${domain}`,
+      timeoutMs,
+    });
+  const baselineKnown = normalizeUrlList(baseline.knownUrls);
+  const baselineWorking = normalizeUrlList(baseline.knownWorkingUrls);
+  const baselineBroken = normalizeUrlList(baseline.knownBrokenUrls);
+  const baselineMediaByUrl = normalizeBaselineMediaMap(baseline.knownMediaByUrl);
+
   const crawler = new LocalCrawler({
     startUrl: startUrl || `https://${domain}`,
+    seedQueueUrls: baselineWorking,
     limit: maxUrls,
     maxDepth,
     concurrency,
@@ -72,7 +101,7 @@ module.exports = async function crawlAndBuildSitemap(payload) {
 
   await flushProgress({
     stage: 'crawling',
-    urlsInSitemap: 0,
+    urlsInSitemap: baselineWorking.length,
     queueDepth: 1,
     externalCount: 0,
     notFoundCount: 0,
@@ -104,11 +133,31 @@ module.exports = async function crawlAndBuildSitemap(payload) {
     if (stopMonitor) clearInterval(stopMonitor);
   }
 
-  const entries = crawlResult.visitedUrls.map((url) => ({
+  const crawledSet = new Set(Array.isArray(crawlResult.crawledUrls) ? crawlResult.crawledUrls : []);
+  const knownSet = new Set(baselineKnown);
+  const finalUrls = Array.from(new Set([...baselineWorking, ...crawlResult.visitedUrls]));
+  const finalSet = new Set(finalUrls);
+  const addedUrls = finalUrls.filter((url) => !knownSet.has(url));
+  const retainedUrls = baselineWorking.filter((url) => finalSet.has(url));
+  const removedUrls = baselineKnown.filter((url) => !finalSet.has(url));
+
+  const entries = finalUrls.map((url) => ({
     url,
     lastmod: toIsoDate(null),
-    images: includeImages ? Array.from(new Set(crawlResult.pageMedia[url]?.images || [])) : [],
-    videos: includeVideos ? Array.from(new Set(crawlResult.pageMedia[url]?.videos || [])) : [],
+    images: includeImages
+      ? Array.from(new Set(
+        crawledSet.has(url)
+          ? (crawlResult.pageMedia[url]?.images || [])
+          : (baselineMediaByUrl[url]?.images || [])
+      ))
+      : [],
+    videos: includeVideos
+      ? Array.from(new Set(
+        crawledSet.has(url)
+          ? (crawlResult.pageMedia[url]?.videos || [])
+          : (baselineMediaByUrl[url]?.videos || [])
+      ))
+      : [],
   }));
   const dedupedEntries = dedupeMediaAcrossEntries(entries, {
     includeImages,
@@ -153,6 +202,20 @@ module.exports = async function crawlAndBuildSitemap(payload) {
     includeImages,
     includeVideos,
     totalUrls: dedupedEntries.length,
+    hasExistingSitemap: Boolean(baseline.hasExistingSitemap),
+    knownUrlsCount: baselineKnown.length,
+    knownWorkingCount: baselineWorking.length,
+    knownBrokenCount: baselineBroken.length,
+    baselineHealthCheckSkipped: Boolean(baseline.healthCheckSkipped),
+    baselineHealthCheckCap: Number(baseline.healthCheckCap || 0),
+    baselineCheckedCount: Number(baseline.checkedCount || 0),
+    retainedUrlsCount: retainedUrls.length,
+    addedUrlsCount: addedUrls.length,
+    removedUrlsCount: removedUrls.length,
+    addedUrls: addedUrls.slice(0, DELTA_LIST_PREVIEW),
+    removedUrls: removedUrls.slice(0, DELTA_LIST_PREVIEW),
+    retainedUrls: retainedUrls.slice(0, DELTA_LIST_PREVIEW),
+    knownBrokenUrls: baselineBroken.slice(0, DELTA_LIST_PREVIEW),
     sitemapUrl: saved.publicUrl,
     sitemapFilePath: saved.filePath,
     generatedFiles: saved.generatedFiles,
@@ -182,9 +245,11 @@ class LocalCrawler {
     this.timeoutMs = config.timeoutMs;
     this.onProgress = typeof config.onProgress === 'function' ? config.onProgress : () => {};
 
-    this.queue = [{ url: this.startUrl, depth: 0 }];
-    this.inQueue = new Set([this.startUrl]);
+    const seededQueue = normalizeUrlList(config.seedQueueUrls).filter((url) => url !== this.startUrl);
+    this.queue = [{ url: this.startUrl, depth: 0 }, ...seededQueue.map((url) => ({ url, depth: 0 }))];
+    this.inQueue = new Set([this.startUrl, ...seededQueue]);
     this.visited = new Set();
+    this.crawled = new Set();
     this.brokenLinks = new Set();
     this.externalLinks = new Set();
     this.pageMedia = {};
@@ -249,6 +314,7 @@ class LocalCrawler {
       }
 
       this.visited.add(currentUrl);
+      this.crawled.add(currentUrl);
       if (this.visited.size >= this.limit) {
         this.queue.length = 0;
         this.inQueue.clear();
@@ -281,6 +347,7 @@ class LocalCrawler {
     await Promise.all(workers);
     return {
       visitedUrls: Array.from(this.visited),
+      crawledUrls: Array.from(this.crawled),
       brokenLinks: Array.from(this.brokenLinks),
       externalLinks: Array.from(this.externalLinks),
       pageMedia: this.pageMedia,
@@ -333,6 +400,32 @@ function dedupeMediaAcrossEntries(entries, options = {}) {
     }
     return next;
   });
+}
+
+function normalizeUrlList(items) {
+  if (!Array.isArray(items)) return [];
+  const output = [];
+  const seen = new Set();
+  for (const item of items) {
+    const normalized = canonicalizeUrl(item);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function normalizeBaselineMediaMap(value) {
+  if (!value || typeof value !== 'object') return {};
+  const output = {};
+  for (const [rawUrl, media] of Object.entries(value)) {
+    const url = canonicalizeUrl(rawUrl);
+    if (!url || !media || typeof media !== 'object') continue;
+    const images = normalizeUrlList(Array.isArray(media.images) ? media.images : []);
+    const videos = normalizeUrlList(Array.isArray(media.videos) ? media.videos : []);
+    output[url] = { images, videos };
+  }
+  return output;
 }
 
 function extractMediaRefsFromHtml($, currentPageUrl) {

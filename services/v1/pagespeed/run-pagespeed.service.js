@@ -5,6 +5,7 @@ const axios = require('axios');
 module.exports = async function runPageSpeed(payload) {
   const startedAt = Date.now();
   const domain = String(payload.domain || '').trim();
+  const strategy = String(payload.mode || 'mobile').trim().toLowerCase() === 'desktop' ? 'desktop' : 'mobile';
   if (!domain) {
     throw new Error('Invalid domain payload for PageSpeed job');
   }
@@ -13,7 +14,7 @@ module.exports = async function runPageSpeed(payload) {
   const params = {
     url: `https://${domain}`,
     category: ['performance', 'accessibility', 'best-practices', 'seo', 'pwa'],
-    strategy: 'mobile',
+    strategy,
   };
   if (apiKey) params.key = apiKey;
 
@@ -24,6 +25,8 @@ module.exports = async function runPageSpeed(payload) {
     const audits = data?.lighthouseResult?.audits || {};
     const environment = data?.lighthouseResult?.environment || {};
     const configSettings = data?.lighthouseResult?.configSettings || {};
+    const finalScreenshot = getAuditScreenshot(audits['final-screenshot']);
+    const fullPageScreenshot = getAuditScreenshot(audits['full-page-screenshot']);
 
     const report = {
       summary: {
@@ -44,9 +47,13 @@ module.exports = async function runPageSpeed(payload) {
         fetchTime: data?.lighthouseResult?.fetchTime || null,
         userAgent: environment.networkUserAgent || null,
         lighthouseVersion: environment.benchmarkIndex ? String(environment.benchmarkIndex) : null,
-        strategy: data?.analysisUTCTimestamp ? 'mobile' : null,
+        strategy,
         emulatedFormFactor: configSettings.emulatedFormFactor || null,
         runtimeError: data?.lighthouseResult?.runtimeError?.message || null,
+      },
+      visualPreview: {
+        finalScreenshot: finalScreenshot || null,
+        fullPageScreenshot: fullPageScreenshot || null,
       },
       filesAssets: buildFilesAssets(audits),
     };
@@ -54,6 +61,7 @@ module.exports = async function runPageSpeed(payload) {
     return {
       status: 'completed',
       domain,
+      mode: strategy,
       elapsedMs: Date.now() - startedAt,
       summary: {
         performance: scoreOf(categories.performance),
@@ -71,7 +79,7 @@ module.exports = async function runPageSpeed(payload) {
         },
       },
       report,
-      raw: data,
+      raw: buildCompactRawPayload(data),
     };
   } catch (error) {
     return {
@@ -215,6 +223,49 @@ function buildFilesAssets(audits) {
     modernImageFormats: audits['modern-image-formats']?.displayValue || null,
     efficientAnimatedContent: audits['efficient-animated-content']?.displayValue || null,
     resourceSummary: audits['resource-summary']?.details || null,
+  };
+}
+
+function getAuditScreenshot(audit) {
+  const rawData = audit?.details?.data;
+  if (typeof rawData === 'string' && rawData.startsWith('data:image/')) {
+    return rawData;
+  }
+  return null;
+}
+
+function buildCompactRawPayload(data) {
+  const lighthouseResult = data?.lighthouseResult || {};
+  const categories = lighthouseResult.categories || {};
+  const audits = lighthouseResult.audits || {};
+
+  return {
+    analysisUTCTimestamp: data?.analysisUTCTimestamp || null,
+    id: data?.id || null,
+    loadingExperience: data?.loadingExperience || null,
+    lighthouseResult: {
+      requestedUrl: lighthouseResult.requestedUrl || null,
+      finalUrl: lighthouseResult.finalUrl || null,
+      fetchTime: lighthouseResult.fetchTime || null,
+      categories,
+      configSettings: lighthouseResult.configSettings || null,
+      environment: lighthouseResult.environment || null,
+      audits: Object.fromEntries(
+        Object.entries(audits).map(([auditId, audit]) => [
+          auditId,
+          {
+            id: audit?.id || auditId,
+            title: audit?.title || auditId,
+            description: audit?.description || null,
+            score: typeof audit?.score === 'number' ? audit.score : null,
+            scoreDisplayMode: audit?.scoreDisplayMode || null,
+            displayValue: audit?.displayValue || null,
+            numericValue: typeof audit?.numericValue === 'number' ? audit.numericValue : null,
+            detailsType: audit?.details?.type || null,
+          },
+        ])
+      ),
+    },
   };
 }
 

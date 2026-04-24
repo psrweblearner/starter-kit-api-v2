@@ -9,8 +9,9 @@ const JOB_ATTEMPTS = Number(process.env.BULLMQ_JOB_ATTEMPTS || 2);
 const JOB_BACKOFF_DELAY_MS = Number(process.env.BULLMQ_BACKOFF_DELAY_MS || 5000);
 
 module.exports = async (req) => {
-  const { domain } = req.body;
+  const { domain, mode } = req.body;
   const cleanDomain = normalizeDomain(domain);
+  const strategy = mode === 'desktop' ? 'desktop' : 'mobile';
   if (!cleanDomain) {
     throw new AppError('Invalid domain. Use a valid hostname like example.com', 400);
   }
@@ -20,6 +21,7 @@ module.exports = async (req) => {
     status: 'pending',
     inputData: {
       domain: cleanDomain,
+      mode: strategy,
     },
     userId: req?.user?.id || null,
   });

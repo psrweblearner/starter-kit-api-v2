@@ -2,15 +2,119 @@
 
 const axios = require('axios');
 
+const endpoint = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
+const REQUEST_TIMEOUT_MS = Number(process.env.PAGESPEED_TIMEOUT_MS || 90000);
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetry(error) {
+  const status = Number(error?.response?.status || 0);
+  if (RETRYABLE_STATUS.has(status)) return true;
+  const code = String(error?.code || '').toUpperCase();
+  return ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN'].includes(code);
+}
+
+function normalizeApiError(error) {
+  const status = Number(error?.response?.status || 0);
+  const apiMessage = error?.response?.data?.error?.message;
+  const localMessage = error?.message;
+  if (apiMessage) return status ? `${apiMessage} (HTTP ${status})` : apiMessage;
+  if (localMessage) return localMessage;
+  return 'PageSpeed failed';
+}
+
+async function requestPageSpeed(url, strategy) {
+  const params = {
+    url,
+    key: process.env.PAGESPEED_API_KEY,
+    strategy,
+    category: ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO'],
+  };
+  return axios.get(endpoint, {
+    timeout: REQUEST_TIMEOUT_MS,
+    params,
+  });
+}
+
+async function requestWithRetry(url, strategy) {
+  const maxAttempts = 3;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await requestPageSpeed(url, strategy);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts || !shouldRetry(error)) throw error;
+      await wait(1000 * attempt);
+    }
+  }
+  throw lastError;
+}
+
 module.exports = async (domain) => {
   const startedAt = Date.now();
-  const endpoint = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
-  const requestUrl = `${endpoint}?url=https://${domain}&key=${process.env.PAGESPEED_API_KEY}`;
+  const primaryUrl = `https://${domain}`;
+  const fallbackUrl = `http://${domain}`;
+
+  if (!process.env.PAGESPEED_API_KEY) {
+    return {
+      status: 'partial',
+      elapsedMs: Date.now() - startedAt,
+      error: 'PAGESPEED_API_KEY is missing',
+      metrics: {
+        scores: { performance: null, accessibility: null, seo: null },
+        coreWebVitals: { lcp: null, cls: null, fcp: null, tbt: null, speedIndex: null },
+      },
+      processed: {
+        opportunities: [],
+        diagnostics: [],
+        resourceSummary: null,
+        categoryGroups: {},
+      },
+      raw: null,
+    };
+  }
 
   try {
-    const { data } = await axios.get(requestUrl, {
-      timeout: 60000
-    });
+    let data;
+    let lastError;
+    const candidates = [
+      { url: primaryUrl, strategy: 'mobile' },
+      { url: primaryUrl, strategy: 'desktop' },
+      { url: fallbackUrl, strategy: 'mobile' },
+      { url: fallbackUrl, strategy: 'desktop' },
+    ];
+    for (const candidate of candidates) {
+      try {
+        const response = await requestWithRetry(candidate.url, candidate.strategy);
+        data = response?.data;
+        if (data?.lighthouseResult) break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!data?.lighthouseResult) {
+      return {
+        status: 'partial',
+        elapsedMs: Date.now() - startedAt,
+        error: normalizeApiError(lastError),
+        metrics: {
+          scores: { performance: null, accessibility: null, seo: null },
+          coreWebVitals: { lcp: null, cls: null, fcp: null, tbt: null, speedIndex: null },
+        },
+        processed: {
+          opportunities: [],
+          diagnostics: [],
+          resourceSummary: null,
+          categoryGroups: {},
+        },
+        raw: null,
+      };
+    }
 
     const lighthouseResult = data?.lighthouseResult || {};
     const categories = lighthouseResult.categories || {};
@@ -74,9 +178,19 @@ module.exports = async (domain) => {
     };
   } catch (e) {
     return {
-      status: 'failed',
+      status: 'partial',
       elapsedMs: Date.now() - startedAt,
-      error: e?.message || 'PageSpeed failed',
+      error: normalizeApiError(e),
+      metrics: {
+        scores: { performance: null, accessibility: null, seo: null },
+        coreWebVitals: { lcp: null, cls: null, fcp: null, tbt: null, speedIndex: null },
+      },
+      processed: {
+        opportunities: [],
+        diagnostics: [],
+        resourceSummary: null,
+        categoryGroups: {},
+      },
       raw: null,
     };
   }

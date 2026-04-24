@@ -4,6 +4,7 @@ const fs = require('fs/promises');
 const axios = require('axios');
 const { AutomationRun, AutomationSite } = require('../../../models');
 const buildSitemap = require('../sitemap/crawl-and-build.service');
+const { loadExistingSitemapBaseline } = require('../sitemap/sitemap-baseline.service');
 const sitemapAutomationLive = require('../../../utils/sitemapAutomationLive');
 const { submitToGoogleIndexing } = require('./google-index.service');
 const { buildAutomationStartUrl } = require('../../../utils/automationHost');
@@ -36,10 +37,14 @@ module.exports = async function runAutomation(payload) {
       statusText: 'Starting crawl',
     });
 
+    const baseline = await loadExistingSitemapBaseline({
+      startUrl: buildAutomationStartUrl(site.domain),
+    });
     const sitemapResult = await buildSitemap({
       jobId: null,
       domain: site.domain,
       startUrl: buildAutomationStartUrl(site.domain),
+      baseline,
       includeImages: true,
       includeVideos: true,
       maxUrls: 50000,
@@ -80,6 +85,12 @@ module.exports = async function runAutomation(payload) {
         ? [...(indexing.errors || []), ...(publish.errors || [])].join(' | ')
         : null,
       resultData: JSON.stringify({
+        baseline: {
+          hasExistingSitemap: Boolean(baseline.hasExistingSitemap),
+          totalKnown: Number(baseline.totalKnown || 0),
+          totalKnownWorking: Number(baseline.totalKnownWorking || 0),
+          totalKnownBroken: Number(baseline.totalKnownBroken || 0),
+        },
         sitemap: sitemapResult,
         indexing,
         publish,
@@ -180,7 +191,10 @@ async function publishSitemapToConnectedSite({ site, sitemapResult }) {
   }
 
   const generated = Array.isArray(sitemapResult.generatedFiles) ? sitemapResult.generatedFiles : [];
-  const primaryFile = generated.find((filePath) => String(filePath || '').toLowerCase().endsWith('.xml')) || sitemapResult.sitemapFilePath;
+  const primaryFile = generated.find((filePath) => String(filePath || '').toLowerCase().endsWith('sitemap-index.xml'))
+    || generated.find((filePath) => String(filePath || '').toLowerCase().endsWith('sitemap.xml'))
+    || generated.find((filePath) => String(filePath || '').toLowerCase().endsWith('.xml'))
+    || sitemapResult.sitemapFilePath;
   let sitemapXml = '';
   if (primaryFile) {
     try {

@@ -11,6 +11,7 @@ const buildSitemap = require('../../services/v1/sitemap/crawl-and-build.service'
 const runSitemapAutomation = require('../../services/v1/sitemap-automation/run-automation.service');
 const buildQr = require('../../services/v1/qr/build-qr.service');
 const runPageSpeed = require('../../services/v1/pagespeed/run-pagespeed.service');
+const runAudit = require('../../services/v1/audit/run-audit.service');
 const { publishJobEvent } = require('./job-notification');
 const { clearSnapshot } = require('../jobSnapshot');
 const { getQueueConnection, JOBS_QUEUE_NAME } = require('./connection');
@@ -23,6 +24,7 @@ const lockDurationMs = Number(process.env.BULLMQ_LOCK_DURATION_MS || 120000);
 const stalledIntervalMs = Number(process.env.BULLMQ_STALLED_INTERVAL_MS || 30000);
 const maxStalledCount = Number(process.env.BULLMQ_MAX_STALLED_COUNT || 2);
 const workerConcurrency = Number(process.env.BULLMQ_WORKER_CONCURRENCY || 4);
+const competitorDomainConcurrency = Number(process.env.COMPETITOR_DOMAIN_CONCURRENCY || 2);
 
 function workerOptions() {
   return {
@@ -39,7 +41,7 @@ new Worker(
   JOBS_QUEUE_NAME,
   async (job) => {
     const queueJobId = String(job?.data?.jobId || '');
-    const jobType = String(job?.data?.type || '');
+    const jobType = String(job?.data?.type || '').trim().toLowerCase();
     if (!queueJobId || !jobType) {
       throw new Error('Invalid queue payload. Expected { jobId, type }.');
     }
@@ -72,10 +74,11 @@ new Worker(
         payload.jobId = queueJobId;
       }
       const result = await processByType(jobType, payload);
+      const compactResult = compactResultForStorage(jobType, result);
 
       await dbJob.update({
         status: 'completed',
-        resultData: JSON.stringify(result),
+        resultData: JSON.stringify(compactResult),
         error: null,
         attempts: currentAttempt,
       });
@@ -121,9 +124,39 @@ async function processByType(type, payload) {
       return processCompetitor(payload || {});
     case 'sitemap_automation':
       return runSitemapAutomation(payload || {});
+    case 'audit':
+      return runAudit(payload || {});
     default:
       throw new Error(`Unsupported job type: ${type}`);
   }
+}
+
+function compactResultForStorage(type, result) {
+  if (type !== 'competitor' && type !== 'audit') return result;
+  // Competitor payloads can be very large due to raw API responses.
+  // Keep only UI-relevant summary fields to avoid DB packet limits.
+  return deepCompact(result);
+}
+
+function deepCompact(value) {
+  if (Array.isArray(value)) {
+    return value.slice(0, 100).map((entry) => deepCompact(entry));
+  }
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    Object.entries(value).forEach(([key, child]) => {
+      if (key === 'raw') return;
+      out[key] = deepCompact(child);
+    });
+    return out;
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 2000 ? `${value.slice(0, 2000)}...[truncated]` : value;
+  }
+
+  return value;
 }
 
 function validatePayload(type, payload) {
@@ -131,7 +164,7 @@ function validatePayload(type, payload) {
     throw new Error(`Invalid payload for job type "${type}"`);
   }
 
-  if (type === 'sitemap' || type === 'speed' || type === 'competitor') {
+  if (type === 'sitemap' || type === 'speed' || type === 'competitor' || type === 'audit') {
     const normalized = normalizeDomain(payload.domain);
     if (!normalized) {
       throw new Error(`Invalid domain for job type "${type}"`);
@@ -147,11 +180,14 @@ function validatePayload(type, payload) {
     payload.domain = normalized;
   }
 
-  if (type === 'competitor') {
+  if (type === 'competitor' || type === 'audit') {
     const competitors = Array.isArray(payload.competitors) ? payload.competitors : [];
     const normalizedCompetitors = competitors.map((value) => normalizeDomain(value)).filter(Boolean);
-    if (!normalizedCompetitors.length || normalizedCompetitors.length !== competitors.length) {
+    if (competitors.length && normalizedCompetitors.length !== competitors.length) {
       throw new Error('Invalid competitor domain(s) in job payload');
+    }
+    if (normalizedCompetitors.length > 10) {
+      throw new Error('Competitors must be between 1 and 10');
     }
     payload.competitors = normalizedCompetitors;
   }
@@ -175,8 +211,10 @@ async function processCompetitor(payload) {
   const businessName = payload.businessName ? String(payload.businessName) : null;
 
   const yourSite = await analyzeDomain(domain, businessName || null);
-  const competitorSettled = await Promise.allSettled(
-    competitors.map((comp) => analyzeDomain(comp, comp))
+  const competitorSettled = await mapWithConcurrency(
+    competitors,
+    Math.max(1, competitorDomainConcurrency),
+    async (comp) => analyzeDomain(comp, comp)
   );
   const competitorResults = competitorSettled.map((entry, index) => {
     if (entry.status === 'fulfilled') return entry.value;
@@ -219,6 +257,32 @@ async function processCompetitor(payload) {
     yourSite,
     competitors: competitorResults,
   };
+}
+
+async function mapWithConcurrency(items, concurrency, workerFn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runOne() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      try {
+        results[current] = {
+          status: 'fulfilled',
+          value: await workerFn(items[current], current),
+        };
+      } catch (error) {
+        results[current] = {
+          status: 'rejected',
+          reason: error,
+        };
+      }
+    }
+  }
+
+  const runnerCount = Math.min(concurrency, items.length || 1);
+  await Promise.all(Array.from({ length: runnerCount }, () => runOne()));
+  return results;
 }
 
 async function analyzeDomain(currentDomain, mapsBusinessName = null) {
@@ -272,13 +336,12 @@ function settledResult(settled, defaultError) {
   if (settled.status === 'fulfilled') {
     const value = settled.value;
     if (value && typeof value === 'object' && value.status) {
-      return value;
+      return deepCompact(value);
     }
     return {
       status: 'completed',
-      data: value,
+      data: deepCompact(value),
       error: null,
-      raw: value,
     };
   }
 
@@ -286,6 +349,5 @@ function settledResult(settled, defaultError) {
     status: 'failed',
     error: settled.reason?.message || defaultError,
     data: null,
-    raw: null,
   };
 }

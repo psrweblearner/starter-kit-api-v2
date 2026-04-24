@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
   Job.init(
     {
       type: {
-        type: DataTypes.ENUM('sitemap', 'competitor', 'speed', 'qr', 'sitemap_automation'),
+        type: DataTypes.ENUM('sitemap', 'competitor', 'speed', 'qr', 'sitemap_automation', 'audit'),
         allowNull: false,
       },
       status: {
