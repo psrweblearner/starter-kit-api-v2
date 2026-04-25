@@ -165,6 +165,42 @@ router
     validate(schema['url-opener'].withId),
     CTR['Url-opener'].remove
   );
+router
+  .route('/cold-outreach/rules')
+  .post(
+    validate(schema['cold-outreach'].createRule),
+    CTR['Cold-outreach'].createRule
+  )
+  .get(
+    CTR['Cold-outreach'].listRules
+  );
+router
+  .route('/cold-outreach/rules/:id/run')
+  .post(
+    validate(schema['cold-outreach'].withId),
+    CTR['Cold-outreach'].runRule
+  );
+router
+  .route('/cold-outreach/rules/:id')
+  .get(
+    validate(schema['cold-outreach'].withId),
+    CTR['Cold-outreach'].getRule
+  )
+  .delete(
+    validate(schema['cold-outreach'].withId),
+    CTR['Cold-outreach'].deleteRule
+  );
+router
+  .route('/cold-outreach/leads')
+  .get(
+    validate(schema['cold-outreach'].listLeads),
+    CTR['Cold-outreach'].listLeads
+  );
+router
+  .route('/cold-outreach/leads/export')
+  .get(
+    CTR['Cold-outreach'].exportLeadsCsv
+  );
 // http://localhost:5000/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
 router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);

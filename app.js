@@ -11,6 +11,7 @@ const adminAuth = require('./middleware/adminAuth');
 const cookieParser = require('cookie-parser');
 const PORT = process.env.PORT || 5000;
 require('./utils/queue/worker');
+require('./utils/queue/cold-outreach.worker');
 const sitemapAutomationScheduler = require('./services/v1/sitemap-automation/scheduler.service');
 
 
