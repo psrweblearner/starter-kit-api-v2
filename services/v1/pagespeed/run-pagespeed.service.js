@@ -213,6 +213,20 @@ function buildSeoSnapshot(audits) {
 }
 
 function buildFilesAssets(audits) {
+  const networkItems = Array.isArray(audits['network-requests']?.details?.items)
+    ? audits['network-requests'].details.items
+    : [];
+  const topHeavyRequests = networkItems
+    .map((item) => ({
+      url: item?.url || null,
+      resourceType: item?.resourceType || null,
+      transferSize: Number(item?.transferSize || 0),
+      resourceSize: Number(item?.resourceSize || 0),
+    }))
+    .filter((item) => item.url)
+    .sort((a, b) => (b.transferSize || b.resourceSize) - (a.transferSize || a.resourceSize))
+    .slice(0, 12);
+
   return {
     totalByteWeight: audits['total-byte-weight']?.displayValue || null,
     totalRequests: audits['network-requests']?.details?.items?.length || null,
@@ -223,6 +237,7 @@ function buildFilesAssets(audits) {
     modernImageFormats: audits['modern-image-formats']?.displayValue || null,
     efficientAnimatedContent: audits['efficient-animated-content']?.displayValue || null,
     resourceSummary: audits['resource-summary']?.details || null,
+    topHeavyRequests,
   };
 }
 

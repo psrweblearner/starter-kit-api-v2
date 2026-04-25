@@ -21,6 +21,15 @@ exports.sectionNarratives = catchAsync(async (req, res) => {
   });
 });
 
+exports.businessReport = catchAsync(async (req, res) => {
+  const data = await services.audit['business-report'](req);
+  res.status(200).json({
+    success: true,
+    message: 'Business report generated',
+    data,
+  });
+});
+
 exports.getResult = catchAsync(async (req, res) => {
   const { jobId } = req.params;
   const snapshot = await getSnapshot(jobId);

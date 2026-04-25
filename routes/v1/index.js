@@ -18,12 +18,13 @@ const protectUserOrAdmin = (req, res, next) => {
 // Public API
 
 // Tools
-router.route('/competitor/analyze').post(validate(schema.competitor.analyze),CTR.Competitor.analyze);
-router.route('/competitor/result/:jobId').get(CTR.Competitor.getResult);
-router.route('/competitor/result/:jobId/subscribe').get(CTR.Competitor.subscribeResult);
-router.route('/competitor/result/:jobId/clear-cache').post(CTR.Competitor.clearResultCache);
+router.route('/competitor/analyze').post(validate(schema.audit.run), CTR.Audit.run);
+router.route('/competitor/result/:jobId').get(CTR.Audit.getResult);
+router.route('/competitor/result/:jobId/subscribe').get(CTR.Audit.subscribeResult);
+router.route('/competitor/result/:jobId/clear-cache').post(CTR.Audit.clearResultCache);
 router.route('/audit/run').post(validate(schema.audit.run), CTR.Audit.run);
 router.route('/audit/section-narratives').post(CTR.Audit.sectionNarratives);
+router.route('/audit/business-report').post(CTR.Audit.businessReport);
 router.route('/audit/result/:jobId').get(CTR.Audit.getResult);
 router.route('/audit/result/:jobId/subscribe').get(CTR.Audit.subscribeResult);
 router.route('/audit/result/:jobId/clear-cache').post(CTR.Audit.clearResultCache);

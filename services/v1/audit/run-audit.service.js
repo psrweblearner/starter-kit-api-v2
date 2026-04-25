@@ -162,9 +162,9 @@ function collectIssues(modules) {
 }
 
 function buildRecommendations(issues) {
-  return issues.slice(0, 10).map((entry) => ({
+  return issues.slice(0, 12).map((entry) => ({
     priority: entry.severity === 'critical' ? 'high' : 'medium',
-    recommendation: entry.title,
+    recommendation: recommendationForIssue(entry),
     expectedImpact: entry.severity === 'critical' ? 'High' : 'Moderate',
   }));
 }
@@ -178,6 +178,40 @@ function buildActionPlan(issues, recommendations) {
     priority: recommendations[index]?.priority || (issue.severity === 'critical' ? 'high' : 'medium'),
     expectedImpact: recommendations[index]?.expectedImpact || (issue.severity === 'critical' ? 'High' : 'Moderate'),
   }));
+}
+
+function recommendationForIssue(entry) {
+  const title = String(entry?.title || '').toLowerCase();
+  if (title.includes('unused javascript')) {
+    return 'Audit bundle with source maps, remove dead code, and lazy-load non-critical JS chunks on key templates.';
+  }
+  if (title.includes('unused css')) {
+    return 'Purge unused CSS classes, split critical CSS, and defer non-critical stylesheets.';
+  }
+  if (title.includes('missing title')) {
+    return 'Add unique keyword-focused title tags for all indexable pages, prioritizing revenue pages first.';
+  }
+  if (title.includes('missing meta description')) {
+    return 'Write page-specific meta descriptions with intent keywords and CTA-focused messaging.';
+  }
+  if (title.includes('missing canonical')) {
+    return 'Add canonical links to all indexable pages and enforce one preferred URL per content.';
+  }
+  if (title.includes('h1 structure')) {
+    return 'Keep exactly one descriptive H1 per page and move extra headings to H2/H3 hierarchy.';
+  }
+  if (title.includes('meta pixel')) {
+    return 'Deploy Meta Pixel via GTM with conversion events and verify with Meta Pixel Helper.';
+  }
+  if (title.includes('google analytics')) {
+    return 'Implement GA4 with full conversion events, validate in DebugView, and map to ad goals.';
+  }
+  if (title.includes('heavy resource payload')) {
+    return 'Compress top heavy files, enable modern formats, and deliver via CDN with long-cache headers.';
+  }
+  return entry?.detail
+    ? `Resolve: ${entry.detail}`
+    : `Fix "${entry?.title || 'this issue'}" on key pages first and re-run audit to validate impact.`;
 }
 
 function buildProofBlock({ domain, modules, scores, sectionWinners, overallPosition }) {
