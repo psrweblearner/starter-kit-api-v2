@@ -132,6 +132,39 @@ router.route('/qr/result/:jobId/clear-cache').post(CTR.Qr.clearResultCache);
 router.route('/pagespeed/generate').post(validate(schema.pagespeed.generate), CTR.Pagespeed.generate);
 router.route('/pagespeed/result/:jobId').get(CTR.Pagespeed.getResult);
 router.route('/pagespeed/result/:jobId/clear-cache').post(CTR.Pagespeed.clearResultCache);
+router
+  .route('/url-opener/groups')
+  .post(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['url-opener'].create),
+    CTR['Url-opener'].create
+  )
+  .get(
+    userAuth.identify,
+    protectUserOrAdmin,
+    CTR['Url-opener'].findAll
+  );
+router
+  .route('/url-opener/groups/:id')
+  .get(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['url-opener'].withId),
+    CTR['Url-opener'].findOne
+  )
+  .put(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['url-opener'].update),
+    CTR['Url-opener'].update
+  )
+  .delete(
+    userAuth.identify,
+    protectUserOrAdmin,
+    validate(schema['url-opener'].withId),
+    CTR['Url-opener'].remove
+  );
 // http://localhost:5000/v1/admin-auth/login
 router.route('/admin-auth/login').post(validate(schema.adminAuth.login), CTR.AdminAuth.login);
 router.route('/admin-auth/refresh-token').post(CTR.AdminAuth.refreshToken);
